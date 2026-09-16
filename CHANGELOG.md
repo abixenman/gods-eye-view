@@ -1,5 +1,11 @@
 # Changelog
 
+- Add a fully local voice path behind `AI_PROVIDER=ollama`: browser Silero VAD
+  decides utterance boundaries hands-free, a Python worker runs faster-whisper
+  and Piper, and Ollama handles reasoning and the same 28 tool schemas through a
+  local WebSocket. The adapter plugs into the common voice session beside the
+  OpenAI Realtime adapter; no key leaves the machine and the cost meter hides.
+
 - Distinguish PARTIAL vessel snapshots from STALE data in the layer panel, with
   accepted-record counts and unchanged retention, freshness and outage safeguards.
 

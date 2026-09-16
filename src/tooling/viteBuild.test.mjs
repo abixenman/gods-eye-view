@@ -40,6 +40,12 @@ test('explicit build inputs preserve browser-only defines, plugin order and loop
     createBrowserViteConfig({ host: '::', port: '4800' }).server.port,
     4800,
   );
+  assert.equal(
+    createBrowserViteConfig({ aiProvider: 'ollama' }).define[
+      'import.meta.env.GEV_AI_PROVIDER'
+    ],
+    '"ollama"',
+  );
 });
 
 test('build helper does not discover environment values or construct local providers', () => {
