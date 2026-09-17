@@ -12,6 +12,7 @@ import { createWakeWordListener, readWakeWordSettings } from './wakeWord.js';
 import { createLocalMemory } from './localMemory.js';
 import { createWatchEngine } from './watchEngine.js';
 import { createLocalTools } from './localTools.js';
+import { applyPeerFrame, readShareAlerts } from './peerFrames.js';
 import {
   LOCAL_VOICE_STATUS,
   parseLocalFrame,
@@ -133,7 +134,11 @@ export function createLocalVoiceSession({
     if (
       isActive() &&
       socket &&
-      backend.send({ type: 'notify', text: alert.text })
+      backend.send({
+        type: 'notify',
+        text: alert.text,
+        share: readShareAlerts(),
+      })
     )
       return;
     emit({
@@ -310,6 +315,22 @@ export function createLocalVoiceSession({
         text: `⚠ ${frame.text}`,
         final: true,
       });
+      return;
+    }
+    if (frame.type === 'peer_place') {
+      const saved = applyPeerFrame(frame, {
+        memory,
+        toast: (text) => getGlobe()?.styleManager?._showToast?.(text),
+      });
+      if (saved) {
+        debugLog('local.peer_place', { peer: saved.peer, name: saved.name });
+        emit({
+          type: 'transcript',
+          role: 'assistant',
+          text: `📍 ${saved.peer} shared "${frame.place.name}" (saved as "${saved.name}")`,
+          final: true,
+        });
+      }
       return;
     }
     if (frame.type === 'audio_chunk' || frame.type === 'audio_end') {
