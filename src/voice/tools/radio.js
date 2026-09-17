@@ -10,6 +10,12 @@ const DIRECTORY = '/api/radio/stations';
 const DIRECTORY_SEARCH = '/api/radio/search';
 const PLAYING = new Set(['loading', 'buffering', 'playing']);
 
+/** Result timeouts (ms) the server should allow for these tools. */
+export const timeouts = Object.freeze({
+  radio_listen: 30_000,
+  radio_transcript: 20_000,
+});
+
 export const schemas = [
   {
     name: 'radio_listen',

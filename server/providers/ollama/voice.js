@@ -13,7 +13,10 @@ import {
   deterministicRemember,
   deterministicConfirmation,
 } from './fastPath.js';
-import { LOCAL_TOOL_SCHEMAS } from '../../../src/voice/localToolSchemas.js';
+import {
+  LOCAL_TOOL_SCHEMAS,
+  LOCAL_TOOL_TIMEOUTS,
+} from '../../../src/voice/localToolSchemas.js';
 import { answerVisually } from './vision.js';
 import { applyMemoryContext, speakNotice } from './sessionExtras.js';
 import { sharedRemoteHub } from './remote.js';
@@ -207,7 +210,12 @@ export async function runTurn(session, text, deps) {
         const callId = randomUUID();
         log('tool_call', { turnId, callId, name, arguments: args });
         send({ type: 'tool_call', callId, turnId, name, arguments: args });
-        const result = await awaitToolResult(session, callId, turnAbort.signal);
+        const result = await awaitToolResult(
+          session,
+          callId,
+          turnAbort.signal,
+          LOCAL_TOOL_TIMEOUTS[name] || TOOL_RESULT_TIMEOUT_MS,
+        );
         log('tool_result', { turnId, callId, ok: result?.ok !== false });
         if (name === 'ask_about_view' && result?.vision && result?.image) {
           const { image, ...rest } = result;
@@ -259,7 +267,12 @@ export async function runTurn(session, text, deps) {
   }
 }
 
-function awaitToolResult(session, callId, signal) {
+function awaitToolResult(
+  session,
+  callId,
+  signal,
+  timeoutMs = TOOL_RESULT_TIMEOUT_MS,
+) {
   return new Promise((resolve) => {
     const finish = (value) => {
       clearTimeout(timer);
@@ -269,7 +282,7 @@ function awaitToolResult(session, callId, signal) {
     };
     const timer = setTimeout(
       () => finish({ ok: false, error: 'Tool result timed out' }),
-      TOOL_RESULT_TIMEOUT_MS,
+      timeoutMs,
     );
     const onAbort = () => finish({ ok: false, error: 'Session closed' });
     signal.addEventListener('abort', onAbort, { once: true });

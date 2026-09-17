@@ -27,6 +27,13 @@ export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);
 }
 
+/** Per-tool result timeouts (ms) for tools that legitimately run long. */
+export function packTimeouts() {
+  const out = {};
+  for (const pack of LOCAL_TOOL_PACKS) Object.assign(out, pack.timeouts || {});
+  return out;
+}
+
 export function packHandlers(context) {
   const handlers = {};
   for (const pack of LOCAL_TOOL_PACKS)

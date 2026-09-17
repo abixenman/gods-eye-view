@@ -46,7 +46,7 @@ const SCOPE = {
   required: ['kind'],
 };
 
-import { packSchemas } from './tools/index.js';
+import { packSchemas, packTimeouts } from './tools/index.js';
 
 const CORE_TOOL_SCHEMAS = [
   {
@@ -225,3 +225,14 @@ export const LOCAL_TOOL_NAMES = Object.freeze(
 export function isLocalTool(name) {
   return LOCAL_TOOL_NAMES.includes(name);
 }
+
+/**
+ * How long the server waits for a tool_result before giving up, per tool.
+ * Tools not listed here get the default (10 s). Vision and multi-frame
+ * sweeps run the local vision model and can take a minute or more.
+ */
+export const LOCAL_TOOL_TIMEOUTS = Object.freeze({
+  ask_about_view: 60_000,
+  data_report: 20_000,
+  ...packTimeouts(),
+});

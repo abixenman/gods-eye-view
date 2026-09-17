@@ -14,6 +14,12 @@ const NAMED = {
   required: ['name'],
 };
 
+/** Result timeouts (ms) the server should allow for these tools. */
+export const timeouts = Object.freeze({
+  enroll_voice: 30_000,
+  who_is_speaking: 20_000,
+});
+
 export const schemas = [
   {
     name: 'enroll_voice',

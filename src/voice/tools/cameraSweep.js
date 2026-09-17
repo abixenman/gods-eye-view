@@ -39,6 +39,9 @@ const SCOPE = {
   required: ['kind'],
 };
 
+/** Result timeouts (ms) the server should allow for these tools. */
+export const timeouts = Object.freeze({ camera_sweep: 180_000 });
+
 export const schemas = [
   {
     name: 'camera_sweep',

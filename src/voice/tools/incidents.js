@@ -6,6 +6,9 @@ import { exportIncident, INCIDENTS_ENDPOINT } from '../incidents.js';
  * scrubber, transcript, alerts) saved under .gev-logs/incidents/ and offered
  * as a download; `list_incidents` lists the saved bundles.
  */
+/** Result timeouts (ms) the server should allow for these tools. */
+export const timeouts = Object.freeze({ export_incident: 60_000 });
+
 export const schemas = [
   {
     name: 'export_incident',

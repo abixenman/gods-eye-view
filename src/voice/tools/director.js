@@ -36,6 +36,9 @@ const RECORD_LIMIT = 5000;
 const DATA_WAIT_MS = 8000;
 const GEOCODE_WAIT_MS = 2500;
 
+/** Result timeouts (ms) the server should allow for these tools. */
+export const timeouts = Object.freeze({ make_tour: 30_000 });
+
 export const schemas = [
   {
     name: 'make_tour',
