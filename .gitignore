@@ -16,3 +16,4 @@ pinokio/.installed
 .local/
 scripts/__pycache__/
 public/wakeword/
+.claude/
