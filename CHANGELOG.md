@@ -1,5 +1,12 @@
 # Changelog
 
+- Add `remote.html`, a phone / second-screen companion for the local voice
+  assistant (`AI_PROVIDER=ollama`). It connects to a new
+  `/api/voice/remote` hub that mirrors the globe session's transcript, tool
+  calls and replies as text and forwards typed commands, quick-action chips,
+  interrupts and (on HTTPS/localhost) VAD-cut WAV utterances into the active
+  session. Audio stays on the globe machine. Opening it from a phone needs
+  `HOST=0.0.0.0`; see `docs/REMOTE.md` for the LAN exposure caveat.
 - Local voice gains eyes, memory, alerts and reports: `ask_about_view` sends a
   viewport screenshot to a local vision model (qwen3-vl:4b) for "what does that
   sign say" questions; `remember_place` / `go_to_saved_place` and recall of

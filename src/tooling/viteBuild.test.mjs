@@ -46,6 +46,15 @@ test('explicit build inputs preserve browser-only defines, plugin order and loop
     ],
     '"ollama"',
   );
+  assert.equal(config.build.chunkSizeWarningLimit, 1500);
+  assert.deepEqual(config.build.rollupOptions.input, {
+    main: 'index.html',
+    remote: 'remote.html',
+  });
+  assert.equal(
+    createBrowserViteConfig({ inputs: null }).build.rollupOptions,
+    undefined,
+  );
 });
 
 test('build helper does not discover environment values or construct local providers', () => {
