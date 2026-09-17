@@ -25,6 +25,16 @@
   / `radio_search` / `radio_stop` let the assistant answer "what did they just
   say about the storm". Needs ffmpeg (`FFMPEG_PATH`, PATH or the winget
   install); see docs/RADIO-LISTEN.md.
+- Local voice gains multi-camera vision sweeps: "scan the cameras around
+  downtown and tell me which streets are jammed" runs `camera_sweep`, which
+  picks the nearest loaded CCTV cameras (view / radius / anywhere scope),
+  fetches one frame each through the existing `/api/cctv/frame` proxy, shrinks
+  them in the browser and posts them to a new `POST /api/voice/vision-batch`
+  route that asks the local vision model (qwen3-vl:4b, two frames at a time)
+  for a short verdict and a 0-1 score per camera. Red / amber / green pins with
+  the verdict land on each camera via `annotate_map`; `clear_camera_marks`
+  wipes them. First entry in the `src/voice/tools/` and
+  `server/providers/ollama/routes/` pack registries. See docs/CAMERA-SWEEP.md.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and
