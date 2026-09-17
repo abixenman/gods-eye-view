@@ -697,7 +697,8 @@ export function createQueries({
     getAnalystRecords(maxCount = 2000) {
       if (
         !flightState._billboardCollection ||
-        !flightState._billboardCollection.show ||
+        (!flightState._billboardCollection.show &&
+          !flightState._presentationSuppressed) ||
         flightState.records.data.size === 0
       )
         return [];

@@ -274,6 +274,7 @@
   "src/ui/styles/radio.css",
   "src/ui/styles/responsive.css",
   "src/ui/styles/voice-cost.css",
+  "src/ui/styles/time-travel.css",
   "src/ui/styles/cockpit.css",
   "src/ui/styles/command-dock-compact.css",
   "src/app/stateChannel.js",
@@ -745,5 +746,12 @@
   "src/director/interactions/interactions.test.mjs",
   "scripts/qa-director-interactions.mjs",
   "src/director/sharing/sharing.test.mjs",
-  "scripts/qa-director-sharing.mjs"
+  "scripts/qa-director-sharing.mjs",
+  "src/history/positionHistory.js",
+  "src/history/positionHistory.test.mjs",
+  "src/history/timeTravel.js",
+  "src/history/timeTravel.test.mjs",
+  "src/ui/timeTravelControl.js",
+  "src/ui/timeTravelControl.test.mjs",
+  "docs/TIME-TRAVEL.md"
 ]

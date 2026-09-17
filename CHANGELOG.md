@@ -1,5 +1,11 @@
 # Changelog
 
+- Add time travel: rewind and scrub the last 15 minutes of live flights,
+  military flights and ships from an in-memory position history (32 MB cap).
+  A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and
+  LIVE; `[` / `]` keys and `window.__gevTimeTravel` drive it programmatically.
+  Live layer visuals are hidden (not disabled) while rewound. See
+  docs/TIME-TRAVEL.md.
 - Add `remote.html`, a phone / second-screen companion for the local voice
   assistant (`AI_PROVIDER=ollama`). It connects to a new
   `/api/voice/remote` hub that mirrors the globe session's transcript, tool

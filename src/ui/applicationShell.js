@@ -29,6 +29,9 @@ import { aircraftTrackingTarget } from '../cockpitTracking.js';
 import { ShellFeedback } from './shellFeedback.js';
 
 import { runCctvLayerEnableTransition } from '../cctvFocusPolicy.js';
+import { createPositionHistory } from '../history/positionHistory.js';
+import { createTimeTravel } from '../history/timeTravel.js';
+import { createTimeTravelControl } from './timeTravelControl.js';
 
 /**
  * Central UI orchestrator for the God's Eye View application.
@@ -510,6 +513,8 @@ export class StyleManager extends ShellFacade {
         _toggleOrbit: (...args) => this._toggleOrbit(...args),
         toggleCleanView: (...args) => this.toggleCleanView(...args),
         _toggleCctvEnabled: (...args) => this._toggleCctvEnabled(...args),
+        _rewindHistory: () => this._timeTravel?.rewind(),
+        _resumeLiveHistory: () => this._timeTravel?.resumeLive(),
         _setBloomEnabled: (...args) => this._setBloomEnabled(...args),
         _setBloomIntensity: (...args) => this._setBloomIntensity(...args),
         _setSharpenEnabled: (...args) => this._setSharpenEnabled(...args),
@@ -561,6 +566,7 @@ export class StyleManager extends ShellFacade {
     this._applyGlobalPostDefaults();
     this._initOrbit();
     this._initRecordingOverlay();
+    this._initTimeTravel();
     this._startAnimationLoop();
     this._startTrafficChipTicker();
     this._updateStyleMiniStatus();
@@ -1420,6 +1426,67 @@ export class StyleManager extends ShellFacade {
    * @returns {void}
    */
 
+  /**
+   * Record the live contact layers' positions from app start and mount the
+   * rewind/scrub controls. `window.__gevTimeTravel` is the stable programmatic
+   * seam used by the voice assistant.
+   */
+  _initTimeTravel() {
+    const { services } = this;
+    this._positionHistory = createPositionHistory({
+      dataManager: this._dataManager,
+    });
+    this._timeTravel = createTimeTravel({
+      viewer: this.viewer,
+      history: this._positionHistory,
+      resolveLayerModule: (layerId) =>
+        this._dataManager?.layers?.get?.(layerId)?.module || null,
+      requestRender: services.governorRequestRender,
+      holdRender: services.holdContinuousRender,
+      releaseRender: services.releaseContinuousRender,
+      onEnterRewind: () => {
+        // A follow camera chases a live contact; the live contact is hidden.
+        this._releaseFollowCamera({
+          preserveVesselSelection: false,
+          trackingOrigin: 'tool',
+        });
+        this._showToast('REWIND \u2014 live layers hidden');
+      },
+      onExitRewind: (reason) => {
+        if (reason === 'destroy') return;
+        this._showToast(
+          reason === 'caught-up' ? 'CAUGHT UP \u2014 LIVE' : 'LIVE',
+        );
+      },
+    });
+    this._timeTravelControl = createTimeTravelControl({
+      timeTravel: this._timeTravel,
+      notify: (message) => this._showToast(message),
+    });
+    const api = Object.freeze({
+      rewind: (offsetMs) => this._timeTravel?.rewind(offsetMs) ?? false,
+      seekTo: (timestampMs) => this._timeTravel?.seekTo(timestampMs) ?? false,
+      setRate: (rate) => this._timeTravel?.setRate(rate) ?? 1,
+      resumeLive: () => this._timeTravel?.resumeLive() ?? false,
+      state: () => this._timeTravel?.state() ?? { mode: 'live' },
+      range: () =>
+        this._positionHistory?.range() ?? {
+          oldestT: NaN,
+          newestT: NaN,
+          count: 0,
+        },
+    });
+    this._timeTravelApi = api;
+    window.__gevTimeTravel = api;
+  }
+
+  /** Keep history recording attached to whichever manager the shell owns. */
+  attachDataManager(dataManager) {
+    const result = super.attachDataManager(dataManager);
+    this._positionHistory?.attach(dataManager);
+    return result;
+  }
+
   _initHUDToggle() {
     if (this._hudLayoutSelect) {
       this._hudLayoutSelect.value = 'tactical';
@@ -1493,6 +1560,11 @@ export class StyleManager extends ShellFacade {
     this._panelChrome.destroy();
     this._feedback.destroy();
 
+    this._timeTravelControl?.destroy();
+    this._timeTravel?.destroy();
+    this._positionHistory?.destroy();
+    if (window.__gevTimeTravel === this._timeTravelApi)
+      delete window.__gevTimeTravel;
     this._displayBindings.destroy();
     this._mapSourceControls?.destroy();
     this._keyboardFlight?.destroy();

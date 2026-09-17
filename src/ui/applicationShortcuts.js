@@ -42,6 +42,8 @@ export function bindApplicationShortcuts({
     // whenever flight is enabled (it never reaches here in that case).
     if (key === 'd') actions.cycleDetection();
     if (key === 'c') actions.toggleCctv();
+    if (event.key === '[') actions.rewindHistory?.();
+    if (event.key === ']') actions.resumeLiveHistory?.();
   };
   documentRef.addEventListener('keydown', onKeyDown);
   return {
