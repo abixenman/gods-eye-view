@@ -5,6 +5,7 @@ import { installRemoteHub } from './ollama/remote.js';
 import { VAD_ASSET_ROUTE, createVadAssetHandler } from './ollama/vad-assets.js';
 import { createDebugLogHandler } from './openai/debug-log.js';
 import { installFeatureRoutes } from './ollama/routes/index.js';
+import { isTrustedOrigin } from './ollama/origin.js';
 
 /** Local voice + HUD provider used when AI_PROVIDER=ollama. */
 function ollamaProxy({ sourceRoot = defaultSourceRoot } = {}) {
@@ -15,8 +16,15 @@ function ollamaProxy({ sourceRoot = defaultSourceRoot } = {}) {
       '/api/realtime/debug-log',
       createDebugLogHandler({ sourceRoot }),
     );
-    middlewares.use('/api/voice/config', (_req, res) => {
+    middlewares.use('/api/voice/config', (req, res) => {
       res.setHeader('Content-Type', 'application/json');
+      // The wake-word key is meant for the browser engine, but only for pages
+      // this server serves: DNS-rebinding or LAN pages get nothing.
+      if (!isTrustedOrigin(req)) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'Origin not allowed' }));
+        return;
+      }
       res.end(
         JSON.stringify({
           provider: process.env.AI_PROVIDER || 'openai',

@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { sanitizePlace } from './peers.js';
+import { isTrustedOrigin, rejectUpgrade } from './origin.js';
 
 /**
  * Companion hub for the local voice assistant. A phone or second screen opens
@@ -221,6 +222,7 @@ export function createRemoteHub({ log = () => {}, name = null } = {}) {
       const onUpgrade = (request, socket, head) => {
         const url = new URL(request.url, 'http://localhost');
         if (url.pathname !== path) return;
+        if (!isTrustedOrigin(request)) return rejectUpgrade(socket);
         wss.handleUpgrade(request, socket, head, (ws) =>
           wss.emit('connection', ws, request),
         );

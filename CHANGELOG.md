@@ -1,5 +1,16 @@
 # Changelog
 
+- Local voice hardening for review: both voice WebSockets and
+  `/api/voice/config` refuse browser origins other than the served host (no
+  cross-site WebSocket hijacking or DNS-rebinding access to the transcript,
+  command injection or the wake-word key); incident pages are served under a
+  `sandbox allow-scripts` CSP so a stored bundle cannot run in the app origin;
+  ffmpeg is restricted to `http,https,tcp,tls` with a 15 s read timeout so a
+  broadcaster redirect cannot steer it at local files or the LAN;
+  `npm run wakeword:fetch` pins the Porcupine model to a commit and SHA-256;
+  `scripts/dev-local.sh` binds `localhost` by default like the Windows
+  launcher.
+
 - Local voice hardening after the ten-feature wave: flight and military
   analyst records carry the source contact time and the position history
   stores it, so stale polls no longer read as teleports; anomaly rules use

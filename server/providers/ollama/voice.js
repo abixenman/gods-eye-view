@@ -21,6 +21,7 @@ import { answerVisually } from './vision.js';
 import { applyMemoryContext, speakNotice } from './sessionExtras.js';
 import { sharedRemoteHub } from './remote.js';
 import { identifySpeaker } from './speaker.js';
+import { isTrustedOrigin, rejectUpgrade } from './origin.js';
 
 /**
  * Local voice WebSocket: one connection per mic session. The browser sends
@@ -393,6 +394,7 @@ export function attachVoiceWebSocket(
   const onUpgrade = (request, socket, head) => {
     const url = new URL(request.url, 'http://localhost');
     if (url.pathname !== path) return;
+    if (!isTrustedOrigin(request)) return rejectUpgrade(socket);
     wss.handleUpgrade(request, socket, head, (ws) =>
       wss.emit('connection', ws, request),
     );

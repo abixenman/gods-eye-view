@@ -111,3 +111,31 @@ test('VAD runtime assets are whitelisted by name and served from node_modules', 
   );
   assert.equal(passed, 'next');
 });
+
+test('voice config refuses foreign origins so the wake-word key stays with served pages', async (t) => {
+  env(t, 'AI_PROVIDER', 'ollama');
+  env(t, 'HOST', undefined);
+  env(t, 'PICOVOICE_ACCESS_KEY', 'secret-key');
+  const handler = install(ollamaProxy()).get('/api/voice/config');
+  const ask = (headers) =>
+    new Promise((resolve) => {
+      const res = {
+        statusCode: 200,
+        setHeader() {},
+        end: (value) => resolve({ status: res.statusCode, body: JSON.parse(value) }),
+      };
+      handler({ method: 'GET', url: '/', headers }, res);
+    });
+  const foreign = await ask({
+    host: 'localhost:4173',
+    origin: 'https://evil.example',
+  });
+  assert.equal(foreign.status, 403);
+  assert.equal(JSON.stringify(foreign.body).includes('secret-key'), false);
+  const local = await ask({
+    host: 'localhost:4173',
+    origin: 'http://localhost:4173',
+  });
+  assert.equal(local.status, 200);
+  assert.equal(local.body.wakeWord.accessKey, 'secret-key');
+});

@@ -68,3 +68,11 @@ remote page. Anyone on the Wi-Fi can also open `remote.html` and drive the
 globe. Use it on networks you trust, consider the `GEV_RATELIMIT_*` throttles,
 and switch back to `HOST=localhost` afterwards. The remote never receives audio
 or any key.
+
+Both voice sockets (`/api/voice/ws`, `/api/voice/remote`) and `/api/voice/config`
+check the browser `Origin` against the served host, so a web page you happen
+to visit cannot open the companion socket to `localhost` and read or inject
+commands (cross-site WebSocket hijacking), and a DNS-rebound host name gets
+403. Non-browser clients send no `Origin` and are admitted; the LAN caveat
+above is unchanged. `scripts/dev-local.sh` now binds `localhost` unless `HOST`
+is set, matching the Windows launcher.

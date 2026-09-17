@@ -131,6 +131,7 @@
   "server/providers/regional/weather.js",
   "server/standalone/key-setup.js",
   "src/tooling/localServices.test.mjs",
+  "src/tooling/ollamaOrigin.test.mjs",
   "src/tooling/radioListen.test.mjs",
   "src/search/index.js",
   "src/search/placeSearch.js",

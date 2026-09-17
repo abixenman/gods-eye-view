@@ -189,12 +189,21 @@ export function publicRadioStreamUrl(value) {
   }
 }
 
+/** Per-read network timeout handed to ffmpeg (microseconds). */
+export const FFMPEG_RW_TIMEOUT_US = 15_000_000;
+
 /** ffmpeg arguments that turn any stream into raw 16 kHz mono s16le on stdout. */
 export function ffmpegArgs(url) {
   return [
     '-nostdin',
     '-loglevel',
     'error',
+    // Redirects and playlist entries come from the broadcaster: keep ffmpeg on
+    // plain network protocols (no file:, concat:, data:) and bound each read.
+    '-protocol_whitelist',
+    'http,https,tcp,tls',
+    '-rw_timeout',
+    String(FFMPEG_RW_TIMEOUT_US),
     '-i',
     url,
     '-vn',
@@ -585,7 +594,7 @@ function clampMinutes(value, fallback) {
 
 function cleanText(value, max) {
   return String(value ?? '')
-    .replace(/[ -]/g, ' ')
+    .replace(/[\x00-\x1f\x7f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);

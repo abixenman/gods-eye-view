@@ -140,7 +140,7 @@ export function createIncidentsHandler({
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.setHeader(
           'Content-Security-Policy',
-          "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+          "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; sandbox allow-scripts",
         );
         res.end(html);
         return;

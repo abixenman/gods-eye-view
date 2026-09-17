@@ -226,3 +226,30 @@ test('one hub per process; the Ollama plugin installs it without an HTTP server'
   for (const hook of ['configureServer', 'configurePreviewServer'])
     ollamaProxy()[hook]({ middlewares: { use() {} }, restart: async () => {} });
 });
+
+test('the companion socket refuses upgrades from foreign origins', async () => {
+  const httpServer = createServer();
+  httpServer.listen(0, '127.0.0.1');
+  await once(httpServer, 'listening');
+  const hub = createRemoteHub();
+  const wss = hub.attachRemoteWebSocket({ httpServer });
+  try {
+    const { port } = httpServer.address();
+    const foreign = new WebSocket(`ws://127.0.0.1:${port}${REMOTE_WS_PATH}`, {
+      origin: 'https://evil.example',
+    });
+    const [error] = await once(foreign, 'error');
+    assert.match(String(error?.message), /403/);
+    assert.equal(hub.remoteCount, 0);
+    const local = new WebSocket(`ws://127.0.0.1:${port}${REMOTE_WS_PATH}`, {
+      origin: `http://127.0.0.1:${port}`,
+    });
+    await once(local, 'open');
+    assert.equal(hub.remoteCount, 1);
+    local.close();
+    await once(local, 'close');
+  } finally {
+    wss.close();
+    httpServer.close();
+  }
+});

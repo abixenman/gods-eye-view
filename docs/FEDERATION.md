@@ -92,15 +92,17 @@ name + numeric camera fields on both ends.
 
 ## Security
 
-The companion hub has no authentication: anyone who can open a WebSocket to
-`/api/voice/remote` can read the session transcript, inject typed commands and
-now also inject alerts and places. Peers must therefore be trusted hosts on a
-trusted LAN (or reached through your own VPN/tunnel), and the dev server should
-only be exposed with `HOST=0.0.0.0` on such a network — see the warning in
-`.env.example`. A malicious peer can make the assistant speak arbitrary text
-("From <peer>: …") and plant saved places; it cannot run tools, move the
-camera or hear audio. There is no TLS on the dev server; use `wss://` URLs
-only when a reverse proxy terminates TLS in front of the hub.
+The companion hub has no authentication: anyone on the network who can open a
+WebSocket to `/api/voice/remote` can read the session transcript, inject typed
+commands and now also inject alerts and places (browser pages from other
+origins are refused, see the origin check in [REMOTE.md](REMOTE.md)). Peers
+must therefore be trusted hosts on a trusted LAN (or reached through your own
+VPN/tunnel), and the dev server should only be exposed with `HOST=0.0.0.0` on
+such a network — see the warning in `.env.example`. A malicious peer can make
+the assistant speak arbitrary text ("From <peer>: …") and plant saved places;
+it cannot run tools, move the camera or hear audio. There is no TLS on the dev
+server; use `wss://` URLs only when a reverse proxy terminates TLS in front of
+the hub.
 
 ## Checking it
 
