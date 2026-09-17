@@ -1483,6 +1483,9 @@ export class StyleManager extends ShellFacade {
   /** Keep history recording attached to whichever manager the shell owns. */
   attachDataManager(dataManager) {
     const result = super.attachDataManager(dataManager);
+    // Stable read-only handle for other features (anomalies, incidents,
+    // predictions): trackOf(layerId, id), entitiesAt(t), range(), stats().
+    window.__gevPositionHistory = this._positionHistory;
     this._positionHistory?.attach(dataManager);
     return result;
   }

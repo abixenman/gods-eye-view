@@ -62,6 +62,12 @@ export function createLocalVoiceSession({
   let serverInfo = null;
   let radioDucked = false;
   const sessionId = createDebugSessionId();
+  const recentTranscript = [];
+  const noteTranscript = (role, text) => {
+    if (!text) return;
+    recentTranscript.push({ at: Date.now(), role, text: String(text) });
+    if (recentTranscript.length > 40) recentTranscript.shift();
+  };
 
   const debugLog = (event, payload = {}) => {
     if (!debugSink) return;
@@ -284,7 +290,10 @@ export function createLocalVoiceSession({
     const { frame } = parsed;
     if (frame.type !== 'audio_chunk')
       debugLog('local.server.event', { type: frame.type, frame });
-    for (const event of localSessionEvents(frame)) emit(event);
+    for (const event of localSessionEvents(frame)) {
+      if (event.type === 'transcript') noteTranscript(event.role, event.text);
+      emit(event);
+    }
     if (frame.type === 'ready') {
       serverInfo = frame;
       backend.send({
@@ -442,6 +451,7 @@ export function createLocalVoiceSession({
       capture: capture?.kind || null,
       watches: watches?.list() || [],
       memory: memory.summary(),
+      recentTranscript: recentTranscript.slice(),
     }),
   };
 
