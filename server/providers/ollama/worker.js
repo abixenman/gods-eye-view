@@ -192,6 +192,14 @@ export function createAudioWorker({
         { onChunk, timeoutMs: timeoutMs || 60_000 },
       );
     },
+    /** Speaker voice print for a 16 kHz WAV: { embedding: number[512], ... }. */
+    async embed(wavBytes, { timeoutMs } = {}) {
+      await ensureStarted();
+      return request(
+        { op: 'embed', wav: Buffer.from(wavBytes).toString('base64') },
+        { timeoutMs: timeoutMs || 15_000 },
+      );
+    },
     async ping() {
       await ensureStarted();
       return request({ op: 'ping' }, { timeoutMs: 5000 });

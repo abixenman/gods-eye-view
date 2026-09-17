@@ -47,7 +47,8 @@
     "qa:transit": "node scripts/qa-transit.mjs",
     "qa:local-voice": "node scripts/qa-local-voice.mjs",
     "qa:tool-calls": "node scripts/qa-tool-calls.mjs",
-    "wakeword:fetch": "node scripts/fetch-wakeword-model.mjs"
+    "wakeword:fetch": "node scripts/fetch-wakeword-model.mjs",
+    "speaker:fetch": "node scripts/fetch-speaker-model.mjs"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^3.0.0",

@@ -13,6 +13,9 @@ export const FEATURE_ROUTES = Object.freeze([installRadio]);
 import { install as installVisionBatch } from './visionBatch.js';
 
 export const FEATURE_ROUTES = Object.freeze([installVisionBatch]);
+import { install as installSpeaker } from './speaker.js';
+
+export const FEATURE_ROUTES = Object.freeze([installSpeaker]);
 
 export function installFeatureRoutes(middlewares, server) {
   for (const install of FEATURE_ROUTES) install(middlewares, server);

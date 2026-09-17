@@ -63,7 +63,13 @@ export function statusForFrame(frame) {
       const text = String(frame.text || '').trim();
       if (!text || frame.noSpeech)
         return { state: 'listening', detail: LOCAL_VOICE_STATUS.nothingHeard };
-      return { state: 'executing', detail: `HEARD: ${compact(text, 60)}` };
+      // The server tags the transcript with an enrolled speaker when it
+      // recognises the voice (docs/SPEAKER-ID.md).
+      const who = frame.speaker?.name ? ` (${frame.speaker.name})` : '';
+      return {
+        state: 'executing',
+        detail: `HEARD${who}: ${compact(text, 60)}`,
+      };
     }
     case 'thinking':
       return { state: 'executing', detail: LOCAL_VOICE_STATUS.thinking };

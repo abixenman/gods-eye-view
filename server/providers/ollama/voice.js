@@ -17,6 +17,7 @@ import { LOCAL_TOOL_SCHEMAS } from '../../../src/voice/localToolSchemas.js';
 import { answerVisually } from './vision.js';
 import { applyMemoryContext, speakNotice } from './sessionExtras.js';
 import { sharedRemoteHub } from './remote.js';
+import { identifySpeaker } from './speaker.js';
 
 /**
  * Local voice WebSocket: one connection per mic session. The browser sends
@@ -476,6 +477,12 @@ export function attachVoiceWebSocket(
         durationMs: transcript.durationMs,
         device: health?.device,
       });
+      // Speaker identity hook (server/providers/ollama/speaker.js): keeps the
+      // last few utterance WAVs on session.recentUtterances for enrollment and
+      // tags the transcript with the matched voice profile {name, score}|null.
+      const speaker = transcript.text
+        ? await identifySpeaker(worker, bytes, session)
+        : null;
       send({
         type: 'transcript',
         text: transcript.text,
@@ -483,6 +490,7 @@ export function attachVoiceWebSocket(
         language: transcript.language,
         durationMs: transcript.durationMs,
         sttMs: transcript.sttMs,
+        speaker,
       });
       if (!transcript.text) return;
       await runTurn(session, transcript.text, {

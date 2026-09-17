@@ -24,6 +24,7 @@ process.stdin.on('data', (chunk) => {
       for (let i = 0; i < 3; i++) out({ type: 'audio_chunk', id: req.id, seq: i, sampleRate: 22050, pcm16: 'AA==' });
       out({ type: 'tts_done', id: req.id, chunks: 3 });
     }
+    else if (req.op === 'embed') out({ type: 'embedding', id: req.id, embedding: [1, 0, 0], dim: 3, frames: Buffer.from(req.wav, 'base64').length, model: 'fake' });
     else if (req.op === 'boom') { process.stderr.write('fatal: boom\\n'); setTimeout(() => process.exit(3), 5); }
     else if (req.op === 'slow') { /* never answers */ }
     else out({ type: 'error', id: req.id, error: 'unknown op ' + req.op });
@@ -70,6 +71,15 @@ test('the supervisor correlates ids, streams chunks and reports health', async (
   assert.deepEqual(chunks, [0, 1, 2]);
   assert.equal(done.chunks, 3);
   assert.ok(logs.some(([event]) => event === 'worker.ready'));
+});
+
+test('embed sends the WAV as base64 and returns the voice print', async (t) => {
+  const { worker } = make(t);
+  const reply = await worker.embed(Buffer.from('RIFFwave'));
+  assert.equal(reply.type, 'embedding');
+  assert.deepEqual(reply.embedding, [1, 0, 0]);
+  assert.equal(reply.frames, 8, 'worker saw the decoded bytes');
+  assert.equal(reply.model, 'fake');
 });
 
 test('worker errors reject only the matching request', async (t) => {

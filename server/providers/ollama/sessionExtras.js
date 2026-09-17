@@ -8,8 +8,9 @@ export const LOCAL_TOOL_HINT =
   'Local-only tools are available: remember_place / go_to_saved_place / ' +
   'list_saved_places / forget_place, recall_recent_target for earlier targets, ' +
   'ask_about_view for visual questions about the screen, data_report for grouped ' +
-  'data questions, watch_add / watch_list / watch_clear for standing alerts, and ' +
-  'rewind_time / resume_live for position replay.';
+  'data questions, watch_add / watch_list / watch_clear for standing alerts, ' +
+  'rewind_time / resume_live for position replay, and enroll_voice / ' +
+  'who_is_speaking / list_voices / forget_voice for recognising who is talking.';
 
 export const SPOKEN_STYLE =
   'STYLE: replies are spoken aloud. Use plain sentences, no markdown, no bullet ' +

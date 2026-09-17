@@ -11,10 +11,16 @@ Protocol: newline-delimited JSON on stdin/stdout. Every request carries an
          then {"type": "tts_done", "id", "chunks"}
   {"op": "ping", "id"}  -> {"type": "pong", "id"}
   {"op": "cancel"}      -> {"type": "cancelled"}  (best effort, queue is serial)
+  {"op": "embed", "id", "wav": <base64 WAV>}
+      -> {"type": "embedding", "id", "embedding": [512 floats, L2-normalized],
+          "dim", "frames", "durationMs", "embedMs", "model"}
+         (speaker-identity voice print; {"type": "error"} when the speaker
+          model is absent or the clip is shorter than 0.5 s)
 
 On start the worker loads faster-whisper once (GPU when available), loads the
-Piper voice once, warms both up and prints one ``{"type": "ready", ...}`` line
-with its health. It never exits on a request error; failures come back as
+Piper voice once, loads the optional speaker-embedding ONNX model
+(.local/models, see scripts/fetch-speaker-model.mjs), warms up and prints one
+``{"type": "ready", ...}`` line with its health. It never exits on a request error; failures come back as
 ``{"type": "error", "id", "error"}``. The Node side (server/providers/ollama/
 worker.js) keeps one worker alive across voice sessions.
 """
@@ -348,6 +354,147 @@ def synthesize(request):
     return {"type": "tts_done", "id": request.get("id"), "chunks": seq}
 
 
+# --------------------------------------------------------- speaker identity
+# WeSpeaker CAM++ (VoxCeleb, Apache-2.0) exported for ONNX by sherpa-onnx:
+# input "feats" [1, T, 80] Kaldi log-mel fbank, output "embs" [1, 512].
+SPEAKER_MODEL_NAME = "wespeaker_en_voxceleb_CAM++"
+SPEAKER_SAMPLE_RATE = 16000
+SPEAKER_MIN_SECONDS = 0.5
+SPEAKER_MAX_SECONDS = 20.0
+
+speaker_session = None
+speaker_input_name = "feats"
+speaker_info = {"loaded": False, "model": None, "dim": None, "reason": None}
+
+
+def resolve_speaker_model():
+    explicit = os.getenv("SPEAKER_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return os.path.join(os.getcwd(), ".local", "models", f"{SPEAKER_MODEL_NAME}.onnx")
+
+
+def mel_scale(freq):
+    return 1127.0 * np.log1p(np.asarray(freq, dtype=np.float64) / 700.0)
+
+
+def kaldi_mel_banks(num_bins=80, sample_rate=16000, padded_window=512, low_freq=20.0, high_freq=0.0):
+    """Kaldi MelBanks: triangular filters over FFT bins 0..padded_window/2-1."""
+    num_fft_bins = padded_window // 2
+    nyquist = sample_rate / 2.0
+    high = high_freq if high_freq > 0 else nyquist + high_freq
+    mel_low, mel_high = float(mel_scale(low_freq)), float(mel_scale(high))
+    delta = (mel_high - mel_low) / (num_bins + 1)
+    fft_bin_mel = mel_scale(np.arange(num_fft_bins) * (sample_rate / padded_window))
+    banks = np.zeros((num_bins, num_fft_bins + 1), dtype=np.float64)
+    for b in range(num_bins):
+        left = mel_low + b * delta
+        center = left + delta
+        right = center + delta
+        up = (fft_bin_mel - left) / (center - left)
+        down = (right - fft_bin_mel) / (right - center)
+        weight = np.where(fft_bin_mel <= center, up, down)
+        banks[b, :num_fft_bins] = np.where((fft_bin_mel > left) & (fft_bin_mel < right), weight, 0.0)
+    return banks.astype(np.float32)
+
+
+_mel_banks = None
+
+
+def kaldi_fbank(samples, sample_rate=16000, num_bins=80, frame_ms=25.0, shift_ms=10.0, preemphasis=0.97, mean_normalize=True):
+    """80-dim Kaldi-style log-mel fbank in numpy, matching what WeSpeaker was
+    trained on: int16-scale waveform, DC removal, 0.97 pre-emphasis, Hamming
+    window, 512-point power spectrum, 80 mel bins from 20 Hz to Nyquist, log
+    with float32-epsilon floor, no dither, snip_edges, then per-utterance mean
+    subtraction (CMN). Returns float32 [frames, num_bins]."""
+    global _mel_banks
+    frame_len = int(round(sample_rate * frame_ms / 1000.0))
+    shift = int(round(sample_rate * shift_ms / 1000.0))
+    padded = 1
+    while padded < frame_len:
+        padded *= 2
+    x = np.asarray(samples, dtype=np.float32).astype(np.float64) * 32768.0
+    if len(x) < frame_len:
+        return np.zeros((0, num_bins), dtype=np.float32)
+    num_frames = 1 + (len(x) - frame_len) // shift
+    index = np.arange(frame_len)[None, :] + shift * np.arange(num_frames)[:, None]
+    frames = x[index]
+    frames = frames - frames.mean(axis=1, keepdims=True)
+    emphasized = frames.copy()
+    emphasized[:, 1:] -= preemphasis * frames[:, :-1]
+    emphasized[:, 0] -= preemphasis * frames[:, 0]
+    window = 0.54 - 0.46 * np.cos(2.0 * np.pi * np.arange(frame_len) / (frame_len - 1))
+    emphasized *= window
+    spectrum = np.fft.rfft(emphasized, n=padded)
+    power = spectrum.real ** 2 + spectrum.imag ** 2
+    if _mel_banks is None or _mel_banks.shape != (num_bins, padded // 2 + 1):
+        _mel_banks = kaldi_mel_banks(num_bins, sample_rate, padded)
+    mel = power @ _mel_banks.astype(np.float64).T
+    features = np.log(np.maximum(mel, float(np.finfo(np.float32).eps)))
+    if mean_normalize:
+        features = features - features.mean(axis=0, keepdims=True)
+    return np.ascontiguousarray(features, dtype=np.float32)
+
+
+def load_speaker():
+    global speaker_session, speaker_input_name
+    model = resolve_speaker_model()
+    speaker_info["model"] = model
+    if not os.path.exists(model):
+        speaker_info["reason"] = f"speaker model not found: {model} (run: node scripts/fetch-speaker-model.mjs)"
+        log(speaker_info["reason"])
+        return
+    try:
+        import onnxruntime as ort
+        options = ort.SessionOptions()
+        options.log_severity_level = 3
+        options.intra_op_num_threads = int(os.getenv("SPEAKER_THREADS", "2"))
+        session = ort.InferenceSession(model, options, providers=["CPUExecutionProvider"])
+        inputs = session.get_inputs()
+        if len(inputs) != 1 or len(inputs[0].shape) != 3 or inputs[0].shape[-1] != 80:
+            raise RuntimeError(f"unexpected speaker model input {[(i.name, i.shape) for i in inputs]}; need [B, T, 80]")
+        speaker_input_name = inputs[0].name
+        speaker_session = session
+        speaker_info.update(loaded=True, reason=None, dim=session.get_outputs()[0].shape[-1])
+        log(f"speaker model {os.path.basename(model)} ({speaker_input_name} -> {speaker_info['dim']}-d)")
+    except Exception as error:
+        speaker_info["reason"] = f"speaker model load failed: {error}"
+        log(speaker_info["reason"])
+
+
+def speaker_embedding(samples):
+    """L2-normalized voice print for float32 16 kHz mono samples."""
+    if speaker_session is None:
+        raise RuntimeError(speaker_info["reason"] or "speaker model is not loaded")
+    samples = np.asarray(samples, dtype=np.float32)[: int(SPEAKER_MAX_SECONDS * SPEAKER_SAMPLE_RATE)]
+    if len(samples) < SPEAKER_MIN_SECONDS * SPEAKER_SAMPLE_RATE:
+        raise ValueError(f"utterance shorter than {SPEAKER_MIN_SECONDS:g} s; too short for a voice print")
+    features = kaldi_fbank(samples, SPEAKER_SAMPLE_RATE)
+    outputs = speaker_session.run(None, {speaker_input_name: features[None, :, :]})
+    embedding = np.asarray(outputs[0], dtype=np.float64).reshape(-1)
+    norm = float(np.linalg.norm(embedding))
+    if not np.isfinite(norm) or norm == 0.0:
+        raise RuntimeError("speaker model returned a degenerate embedding")
+    return (embedding / norm).astype(np.float32), features.shape[0]
+
+
+def embed(request):
+    raw = base64.b64decode(request.get("wav") or "")
+    samples, _rate, duration_ms = decode_wav(raw)
+    started = time.perf_counter()
+    embedding, frames = speaker_embedding(samples)
+    return {
+        "type": "embedding",
+        "id": request.get("id"),
+        "embedding": [round(float(v), 6) for v in embedding],
+        "dim": int(embedding.shape[0]),
+        "frames": int(frames),
+        "durationMs": duration_ms,
+        "embedMs": int((time.perf_counter() - started) * 1000),
+        "model": os.path.splitext(os.path.basename(speaker_info["model"] or ""))[0] or None,
+    }
+
+
 # ------------------------------------------------------------------- main
 def warm_up():
     started = time.perf_counter()
@@ -362,12 +509,18 @@ def warm_up():
                 pass
         except Exception as error:
             log(f"piper warm-up failed: {error}")
+    if speaker_session is not None:
+        try:
+            speaker_embedding(np.zeros(SPEAKER_SAMPLE_RATE, dtype=np.float32))
+        except Exception as error:
+            log(f"speaker warm-up failed: {error}")
     return int((time.perf_counter() - started) * 1000)
 
 
 def main():
     load_whisper()
     load_piper()
+    load_speaker()
     warmup_ms = warm_up()
     emit({
         "type": "ready",
@@ -382,6 +535,9 @@ def main():
         "piperModel": os.path.basename(piper_info["model"] or "") or None,
         "piperReason": piper_info["reason"],
         "tts": "piper" if piper_info["loaded"] else os.getenv("LOCAL_TTS_FALLBACK", "none"),
+        "speaker": speaker_info["loaded"],
+        "speakerModel": os.path.basename(speaker_info["model"] or "") or None,
+        "speakerReason": speaker_info["reason"],
         "warmupMs": warmup_ms,
         "python": sys.version.split()[0],
         "pid": os.getpid(),
@@ -399,6 +555,8 @@ def main():
                 emit(transcribe(request))
             elif op == "tts":
                 emit(synthesize(request))
+            elif op == "embed":
+                emit(embed(request))
             elif op == "ping":
                 emit({"type": "pong", "id": request_id})
             elif op == "cancel":

@@ -39,6 +39,11 @@ test('status mapping keeps the mic listening on soft failures', () => {
     state: 'executing',
     detail: 'HEARD: hi',
   });
+  assert.equal(
+    statusForFrame({ type: 'transcript', text: 'hi', speaker: { name: 'Anthony', score: 0.8 } }).detail,
+    'HEARD (Anthony): hi',
+  );
+  assert.equal(statusForFrame({ type: 'transcript', text: 'hi', speaker: null }).detail, 'HEARD: hi');
   assert.deepEqual(statusForFrame({ type: 'transcript', text: '' }), {
     state: 'listening',
     detail: LOCAL_VOICE_STATUS.nothingHeard,
