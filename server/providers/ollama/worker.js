@@ -2,6 +2,27 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
+/** Names that never reach the worker: provider keys, tokens, passwords. */
+const SECRET_ENV_NAME = /KEY|TOKEN|SECRET|PASSW|CREDENTIAL/i;
+
+/**
+ * Environment handed to the Python worker: everything except secret-shaped
+ * names. The worker only needs PATH, CUDA, cache and its own WHISPER_* /
+ * TTS_* / PIPER_* / SPEAKER_* settings; provider keys and tokens stay in the
+ * Node process (a Whisper crash dump or a rogue model download must not carry
+ * them). HF_TOKEN goes too: every model the worker loads is public.
+ * @param {NodeJS.ProcessEnv} [source]
+ * @returns {Record<string, string>}
+ */
+export function workerEnvironment(source = process.env) {
+  const scrubbed = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined || SECRET_ENV_NAME.test(name)) continue;
+    scrubbed[name] = value;
+  }
+  return scrubbed;
+}
+
 /**
  * Supervise one long-lived Python audio worker (scripts/local_audio.py) that
  * hosts faster-whisper and Piper. Requests are newline JSON with an id the
@@ -83,7 +104,11 @@ export function createAudioWorker({
     let proc;
     try {
       proc = spawnImpl(pythonPath, [scriptPath], {
-        env: { ...env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+        env: {
+          ...workerEnvironment(env),
+          PYTHONUNBUFFERED: '1',
+          PYTHONIOENCODING: 'utf-8',
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
       });

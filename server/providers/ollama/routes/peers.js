@@ -3,6 +3,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readRequestBody } from '../../common/request.js';
 import { sharedRemoteHub } from '../remote.js';
+import { publicPeerUrl } from '../peers.js';
 import {
   PEERS_ROUTE,
   createPeerFederation,
@@ -82,7 +83,7 @@ export function install(middlewares, server) {
     });
     logPeers('peer.install', {
       name: federation.name,
-      peers: federation.links.map((link) => link.url),
+      peers: federation.links.map((link) => publicPeerUrl(link.url)),
     });
   }
   middlewares.use(PEERS_ROUTE, createPeersHandler(federation));

@@ -40,6 +40,24 @@ export function peerName(env = process.env) {
   );
 }
 
+/**
+ * A peer URL as it may be logged or reported: credentials in the userinfo
+ * part (ws://user:pass@host) are dropped, everything else is kept verbatim.
+ * @param {string} url
+ * @returns {string}
+ */
+export function publicPeerUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.username && !parsed.password) return url;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString();
+  } catch {
+    return String(url);
+  }
+}
+
 /** Parse GEV_PEERS into unique { url, label } hub endpoints. */
 export function parsePeerList(value) {
   const peers = [];
@@ -123,6 +141,7 @@ export function createPeerLink({
   now = () => Date.now(),
   backoff = { min: BACKOFF_MIN_MS, max: BACKOFF_MAX_MS },
 }) {
+  const shownUrl = publicPeerUrl(url);
   let socket = null;
   let timer = null;
   let delay = backoff.min;
@@ -154,7 +173,7 @@ export function createPeerLink({
     try {
       ws = new WebSocketImpl(url);
     } catch (error) {
-      log('peer.dial_failed', { url, error: error?.message });
+      log('peer.dial_failed', { url: shownUrl, error: error?.message });
       schedule();
       return;
     }
@@ -164,7 +183,7 @@ export function createPeerLink({
       link.connected = true;
       link.lastSeen = now();
       delay = backoff.min;
-      log('peer.open', { url, attempts: link.attempts });
+      log('peer.open', { url: shownUrl, attempts: link.attempts });
       send({ type: 'hello', peer: { name: me } });
       onOpen(link);
     });
@@ -189,7 +208,7 @@ export function createPeerLink({
       socket = null;
       link.connected = false;
       log('peer.close', {
-        url,
+        url: shownUrl,
         reason,
         detail: detail?.message ?? (typeof detail === 'number' ? detail : null),
       });
@@ -229,7 +248,7 @@ export function createPeerLink({
     status() {
       return {
         name: link.name || label,
-        url,
+        url: shownUrl,
         connected: link.connected,
         lastSeen: link.lastSeen,
       };

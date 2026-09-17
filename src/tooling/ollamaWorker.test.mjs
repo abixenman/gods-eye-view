@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createAudioWorker } from '../../server/providers/ollama/worker.js';
+import { spawn } from 'node:child_process';
+import { createAudioWorker, workerEnvironment } from '../../server/providers/ollama/worker.js';
 
 // A stand-in for scripts/local_audio.py written in Node so the supervisor can
 // be exercised without Python, Whisper or Piper installed.
@@ -133,4 +134,47 @@ test('dispose stops the worker and rejects everything outstanding', async (t) =>
   await assert.rejects(() => slow, /disposed/);
   assert.equal(worker.running, false);
   await assert.rejects(() => worker.ping(), /disposed/);
+});
+
+test('the worker environment drops provider keys, tokens and passwords but keeps its own settings', () => {
+  const scrubbed = workerEnvironment({
+    PATH: '/usr/bin',
+    CUDA_PATH: '/opt/cuda',
+    WHISPER_MODEL: 'small',
+    TTS_VOICE: 'en_US-ryan-high',
+    PIPER_MODEL: '/voices/ryan.onnx',
+    SPEAKER_MODEL: '/models/cam.onnx',
+    OPENAI_API_KEY: 'sk-secret',
+    GOOGLE_MAPS_SERVER_API_KEY: 'g-secret',
+    CESIUM_ION_TOKEN: 'ion-secret',
+    OPENSKY_CLIENT_SECRET: 'os-secret',
+    PICOVOICE_ACCESS_KEY: 'pv-secret',
+    HF_TOKEN: 'hf-secret',
+    DB_PASSWORD: 'pw',
+    AWS_CREDENTIALS: 'x',
+    UNSET: undefined,
+  });
+  assert.deepEqual(scrubbed, {
+    PATH: '/usr/bin',
+    CUDA_PATH: '/opt/cuda',
+    WHISPER_MODEL: 'small',
+    TTS_VOICE: 'en_US-ryan-high',
+    PIPER_MODEL: '/voices/ryan.onnx',
+    SPEAKER_MODEL: '/models/cam.onnx',
+  });
+});
+
+test('the spawned worker never sees secret-shaped variables', async (t) => {
+  let spawnedEnv = null;
+  const { worker } = make(t, {
+    env: { ...process.env, OPENAI_API_KEY: 'sk-leak', WHISPER_MODEL: 'tiny' },
+    spawnImpl: (command, args, options) => {
+      spawnedEnv = options.env;
+      return spawn(command, args, options);
+    },
+  });
+  await worker.ensureStarted();
+  assert.equal(spawnedEnv.OPENAI_API_KEY, undefined);
+  assert.equal(spawnedEnv.WHISPER_MODEL, 'tiny');
+  assert.equal(spawnedEnv.PYTHONUNBUFFERED, '1');
 });

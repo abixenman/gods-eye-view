@@ -12,6 +12,7 @@ import {
   createPeerLink,
   parsePeerList,
   peerName,
+  publicPeerUrl,
   sanitizePlace,
 } from '../../server/providers/ollama/peers.js';
 import {
@@ -683,4 +684,50 @@ test('two live hubs federated over real sockets exchange one notice and one plac
   assert.equal(onA.frames.filter((f) => f.frame?.type === 'peer_place').length, 0);
   assert.equal(onB.frames.filter((f) => f.frame?.type === 'notice').length, 1);
   assert.equal(onB.frames.filter((f) => f.frame?.type === 'peer_place').length, 1);
+});
+
+test('publicPeerUrl drops userinfo credentials and leaves everything else alone', () => {
+  assert.equal(
+    publicPeerUrl('wss://desk:hunter2@far.example.com:4173/api/voice/remote'),
+    'wss://far.example.com:4173/api/voice/remote',
+  );
+  assert.equal(
+    publicPeerUrl('ws://office:4173/api/voice/remote'),
+    'ws://office:4173/api/voice/remote',
+  );
+  assert.equal(publicPeerUrl('not a url'), 'not a url');
+});
+
+test('a peer link dials with credentials but never logs or reports them', () => {
+  const dialed = [];
+  const logs = [];
+  class FakeWebSocket {
+    constructor(url) {
+      dialed.push(url);
+      this.handlers = {};
+      this.readyState = 0;
+      this.OPEN = 1;
+    }
+    on(event, handler) {
+      this.handlers[event] = handler;
+    }
+    send() {}
+    close() {}
+  }
+  const url = 'wss://desk:hunter2@far.example.com/api/voice/remote';
+  const link = createPeerLink({
+    url,
+    me: 'unit',
+    WebSocketImpl: FakeWebSocket,
+    log: (event, payload) => logs.push([event, payload]),
+    timers: { setTimeout: () => 0, clearTimeout: () => {} },
+  });
+  link.start?.();
+  link.connect?.();
+  assert.equal(link.status().url, 'wss://far.example.com/api/voice/remote');
+  assert.equal(link.status().name, 'far.example.com');
+  const serialized = JSON.stringify(logs);
+  assert.equal(serialized.includes('hunter2'), false, serialized);
+  if (dialed.length) assert.equal(dialed[0], url);
+  link.close?.();
 });

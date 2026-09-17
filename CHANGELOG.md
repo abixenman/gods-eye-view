@@ -9,7 +9,9 @@
   broadcaster redirect cannot steer it at local files or the LAN;
   `npm run wakeword:fetch` pins the Porcupine model to a commit and SHA-256;
   `scripts/dev-local.sh` binds `localhost` by default like the Windows
-  launcher.
+  launcher. The Python audio worker no longer inherits secret-shaped
+  variables (keys, tokens, passwords) from the server process, and peer URLs
+  are logged and reported without userinfo credentials.
 
 - Local voice hardening after the ten-feature wave: flight and military
   analyst records carry the source contact time and the position history
