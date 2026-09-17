@@ -1,5 +1,13 @@
 # Changelog
 
+- Add incident replay bundles to the local voice assistant: `export_incident`
+  ("save this incident") freezes the current view into one self-contained HTML
+  evidence file with the viewport screenshot, a canvas map of every aircraft
+  and ship track near the camera over the last minutes (time-coloured, with a
+  play/scrub replay), the fix timeline, the recent transcript and standing
+  alerts. Bundles are saved under `.gev-logs/incidents/` through a new
+  `/api/voice/incidents` route (newest 50 kept, 8 MB cap) and offered as a
+  download; `list_incidents` lists them. See docs/INCIDENTS.md.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and
