@@ -53,7 +53,14 @@ export function applyMemoryContext(session, event) {
 export async function speakNotice(
   session,
   text,
-  { send, worker, log = () => {}, createSpeechQueue, origin = null },
+  {
+    send,
+    worker,
+    log = () => {},
+    createSpeechQueue,
+    origin = null,
+    kind = null,
+  },
 ) {
   const turnId = randomUUID();
   const speech = createSpeechQueue({
@@ -65,8 +72,17 @@ export async function speakNotice(
     log,
   });
   log('notice', { turnId, text });
-  session.messages.push({ role: 'assistant', content: `(Alert) ${text}` });
-  send({ type: 'notice', turnId, text, ...(origin ? { origin } : {}) });
+  session.messages.push({
+    role: 'assistant',
+    content: `(${kind === 'info' ? 'Notice' : 'Alert'}) ${text}`,
+  });
+  send({
+    type: 'notice',
+    turnId,
+    text,
+    ...(origin ? { origin } : {}),
+    ...(kind ? { kind } : {}),
+  });
   speech.enqueue(text);
   await speech.finish();
 }

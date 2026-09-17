@@ -7,6 +7,7 @@
  */
 const ROUTE = '/api/voice/radio';
 const DIRECTORY = '/api/radio/stations';
+const DIRECTORY_SEARCH = '/api/radio/search';
 const PLAYING = new Set(['loading', 'buffering', 'playing']);
 
 export const schemas = [
@@ -169,7 +170,21 @@ export function createHandlers({ getGlobe, fetchJson }) {
         /* fall back to the plain ranking */
       }
     }
-    const ranked = rankStationsByName(candidates, query);
+    let ranked = rankStationsByName(candidates, query);
+    if (!ranked.length) {
+      // Not in the curated catalog: ask the directory by name (BBC World
+      // Service, a small local station, ...).
+      try {
+        const body = await fetchJson(
+          `${DIRECTORY_SEARCH}?name=${encodeURIComponent(query)}`,
+        );
+        const remote = Array.isArray(body?.stations) ? body.stations : [];
+        ranked = rankStationsByName(remote, query);
+        if (!ranked.length && remote.length) ranked = remote.slice(0, 4);
+      } catch {
+        /* directory search is best effort */
+      }
+    }
     return { best: ranked[0] || null, alternatives: ranked.slice(1, 4) };
   }
 

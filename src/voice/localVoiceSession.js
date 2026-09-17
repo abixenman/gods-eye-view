@@ -118,16 +118,24 @@ export function createLocalVoiceSession({
       watches,
       getGlobe,
       runner,
-      speakHook: (text) => deliverAlert({ text, watchId: null }),
+      speakHook: (text, opts) =>
+        deliverAlert({ text, watchId: null, kind: opts?.kind || 'info' }),
     });
   }
 
-  /** Spoken through the live session when possible, otherwise toast + browser speech. */
+  /**
+   * Spoken through the live session when possible, otherwise toast + browser
+   * speech. `kind` is 'alert' (default: watch, anomaly, geofence) or 'info'
+   * (patrol briefings, tour narration); only alerts get the warning prefix
+   * and only alerts are shared with peer globes.
+   */
   function deliverAlert(alert) {
-    debugLog('local.alert', { watchId: alert.watchId, text: alert.text });
+    const kind = alert.kind === 'info' ? 'info' : 'alert';
+    const prefix = kind === 'alert' ? '⚠ ' : '';
+    debugLog('local.alert', { watchId: alert.watchId, kind, text: alert.text });
     const globe = getGlobe();
     try {
-      globe?.styleManager?._showToast?.(`⚠ ${alert.text}`);
+      globe?.styleManager?._showToast?.(`${prefix}${alert.text}`);
     } catch {
       /* toast is best effort */
     }
@@ -137,14 +145,15 @@ export function createLocalVoiceSession({
       backend.send({
         type: 'notify',
         text: alert.text,
-        share: readShareAlerts(),
+        kind,
+        share: kind === 'alert' && readShareAlerts(),
       })
     )
       return;
     emit({
       type: 'transcript',
       role: 'assistant',
-      text: `⚠ ${alert.text}`,
+      text: `${prefix}${alert.text}`,
       final: true,
     });
     speakWithBrowser(alert.text);
@@ -312,7 +321,7 @@ export function createLocalVoiceSession({
       emit({
         type: 'transcript',
         role: 'assistant',
-        text: `⚠ ${frame.text}`,
+        text: frame.kind === 'info' ? frame.text : `⚠ ${frame.text}`,
         final: true,
       });
       return;

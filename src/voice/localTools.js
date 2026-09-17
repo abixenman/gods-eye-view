@@ -180,7 +180,9 @@ export function createLocalTools({
       runner,
       captureImage,
       camera,
-      speak: (text) => speakHook?.(text),
+      // kind: 'alert' (warning prefix, forwarded to peers) or 'info'
+      // (briefings, narration). Defaults to info.
+      speak: (text, opts) => speakHook?.(text, opts),
       fetchJson: async (url, body) => {
         const response = await fetch(url, {
           method: body === undefined ? 'GET' : 'POST',

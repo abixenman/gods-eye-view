@@ -215,21 +215,21 @@ function ensureEngines(context, factories = {}) {
     isRelevant: (record) => nearCamera(record, getCamera()),
     onAnomaly: (record) => {
       if (record.nearby) toast(`⚠ ${record.text}`);
-      if (record.spoken) context.speak?.(record.text);
+      if (record.spoken) context.speak?.(record.text, { kind: 'alert' });
     },
   });
   const patrols = (factories.createPatrolEngine || createPatrolEngine)({
     dataManager,
     getCamera,
     getAnomalies: () => anomalies.list({ minutes: 30, limit: 10 }),
-    speak: (text) => context.speak?.(text),
+    speak: (text) => context.speak?.(text, { kind: 'info' }),
   });
   const geofences = (factories.createGeofenceEngine || createGeofenceEngine)({
     dataManager,
     getCamera,
     onEnter: (event) => {
       toast(`⚠ ${event.text}`);
-      context.speak?.(event.text);
+      context.speak?.(event.text, { kind: 'alert' });
     },
   });
   anomalies.start();

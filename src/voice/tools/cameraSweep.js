@@ -336,7 +336,27 @@ export function createHandlers({
         1,
         Math.min(SWEEP_HARD_MAX, Math.round(Number(max) || SWEEP_DEFAULT_MAX)),
       );
-      const listed = listCameras(getGlobe?.());
+      let listed = listCameras(getGlobe?.());
+      if (/is off/.test(listed.error || '') && typeof runner === 'function') {
+        // Enable the layer ourselves and wait (up to 8 s) for cameras to load.
+        try {
+          await runner('control_cctv', { action: 'enable' }, {});
+        } catch {
+          /* fall through to the error below */
+        }
+        const until = Date.now() + 8000;
+        while (Date.now() < until) {
+          await new Promise((r) => setTimeout(r, 500));
+          listed = listCameras(getGlobe?.());
+          if (!listed.error && listed.cameras.length) break;
+        }
+        if (!listed.error && !listed.cameras.length)
+          listed = {
+            error:
+              'CCTV layer enabled but no cameras have loaded yet; ask again in a few seconds',
+            cameras: [],
+          };
+      }
       if (listed.error) return { ok: false, error: listed.error };
       const state = cameraState();
       const kind = scope?.kind || 'view';

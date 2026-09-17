@@ -583,9 +583,10 @@ export function attachVoiceWebSocket(
               send,
               worker,
               createSpeechQueue,
-              // share:false (share_alerts off) tags the notice as already
-              // travelled so peers.js never forwards it to other globes.
+              // share:false (share_alerts off, or an info notice) tags the
+              // notice as already travelled so peers.js never forwards it.
               origin: event.share === false ? 'local' : null,
+              kind: event.kind === 'info' ? 'info' : 'alert',
               log: (name, payload) =>
                 logLocalVoice(name, { sessionId: session.id, ...payload }),
             }),
