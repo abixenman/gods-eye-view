@@ -32,8 +32,9 @@ Portuguese have dedicated Piper voices; others fall back to the English voice).
 ## What it can do beyond the shared tools
 
 The 28 upstream tools (fly, layers, tracking, styles, annotations, analyst
-queries, ...) work unchanged. The local path adds these, served by the browser
-adapter (`src/voice/localTools.js`):
+queries, ...) work unchanged. The local path adds 42 more (70 in total, about
+14.5k prompt tokens), served by the browser adapter (`src/voice/localTools.js`)
+and the packs in `src/voice/tools/`:
 
 | Say | Tool | Notes |
 | --- | --- | --- |
@@ -50,6 +51,12 @@ adapter (`src/voice/localTools.js`):
 | "Scan the cameras downtown and tell me which streets are jammed" / "Clear the camera marks" | `camera_sweep`, `clear_camera_marks` | Frames from the nearest CCTV cameras go to the vision model in one batch; red/amber/green pins per camera (see docs/CAMERA-SWEEP.md). |
 | "This is Anthony" / "Who am I?" / "Forget Anthony's voice" | `enroll_voice`, `who_is_speaking`, `list_voices`, `forget_voice` | Voice prints on the server; later transcripts are tagged `HEARD (Anthony):` (see docs/SPEAKER-ID.md). |
 | "Make me a 60-second tour of the busiest airspace" / "Stop the tour" / "Save that tour as Texas rush" | `make_tour`, `stop_tour`, `save_tour` | Auto-Director: builds, plays and narrates a Director scene from live records (see docs/AUTO-DIRECTOR.md). |
+| "Patrol this area for aircraft and brief me every ten minutes" / "Brief me on the Gulf patrol" / "Stop all patrols" | `patrol_start`, `patrol_brief`, `patrol_list`, `patrol_stop` | Standing missions re-check a scope on a schedule and speak what changed (arrivals, departures, stopped ships, sharp climbs/descents). Up to 6, persisted. |
+| "Anything unusual going on?" / "Any ships gone dark?" / "Stop announcing anomalies" | `anomaly_list`, `anomaly_alerts` | Rule engine over the position history: stopped vessels, rapid descents, orbiting, impossible jumps, went dark. Only anomalies near the camera are spoken, at most 6 per 10 minutes. |
+| "Draw a fence 40 km around here, count aircraft, alert me when one enters" / "How many entered the harbor fence this hour?" | `geofence_add`, `geofence_report`, `geofence_list`, `geofence_remove` | View box, circle or polygon; per-hour entered/exited counts; drawn on the map. |
+| "Show me five minutes ahead" / "Which flights will be within 50 km of here in ten minutes?" | `predict_positions`, `who_will_be_near` | Dead reckoning from the history buffer; the scrubber shows `LIVE +MM:SS` and points fade with confidence (see docs/TIME-TRAVEL.md). |
+| "Save this incident as harbor stop" / "What incidents do I have?" | `export_incident`, `list_incidents` | One self-contained HTML evidence bundle: screenshot, track replay, timeline, transcript, alerts (see docs/INCIDENTS.md). |
+| "Share this place with the other globes" / "Who is connected?" / "Stop sharing alerts" | `share_place`, `peers_list`, `share_alerts` | Federation over `GEV_PEERS`; peer alerts are spoken as "From <peer>: ..." and shared places land in memory (see docs/FEDERATION.md). |
 
 Fast paths: a bare "fly to <Austin, SF, NYC, Tokyo, London, Paris, Dubai, DC>"
 and "remember this place as X" skip the model entirely (about 300 ms).

@@ -1,5 +1,16 @@
 # Changelog
 
+- Local voice hardening after the ten-feature wave: flight and military
+  analyst records carry the source contact time and the position history
+  stores it, so stale polls no longer read as teleports; anomaly rules use
+  timing slack and tighter thresholds, and only anomalies near the camera are
+  spoken (six per ten minutes). Spoken notices carry a kind (alerts keep the
+  warning prefix and reach peers; briefings and tour narration are plain).
+  `camera_sweep` enables the CCTV layer itself, long-running tools get their
+  own result timeouts (sweeps 180 s, vision 60 s), the radio tools fall back
+  to a live Radio Browser name search (`GET /api/radio/search?name=`), and the
+  default model context is 24k for the 70-tool prompt.
+
 - The local assistant now keeps watch on its own: `patrol_start` runs a standing
   mission on a schedule and speaks a briefing of arrivals, departures, stopped
   ships and sharp climbs or descents; a rule-based anomaly engine flags stopped
