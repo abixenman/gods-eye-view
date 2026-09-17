@@ -46,7 +46,9 @@ const SCOPE = {
   required: ['kind'],
 };
 
-export const LOCAL_TOOL_SCHEMAS = Object.freeze([
+import { packSchemas } from './tools/index.js';
+
+const CORE_TOOL_SCHEMAS = [
   {
     name: 'remember_place',
     description:
@@ -209,6 +211,11 @@ export const LOCAL_TOOL_SCHEMAS = Object.freeze([
     description: 'Leave rewind mode and return to live positions.',
     parameters: { type: 'object', additionalProperties: false, properties: {} },
   },
+];
+
+export const LOCAL_TOOL_SCHEMAS = Object.freeze([
+  ...CORE_TOOL_SCHEMAS,
+  ...packSchemas(),
 ]);
 
 export const LOCAL_TOOL_NAMES = Object.freeze(

@@ -1,5 +1,6 @@
 import { captureLocalViewport, airlineFromCallsign } from './localVision.js';
 import { isLocalTool } from './localToolSchemas.js';
+import { packHandlers } from './tools/index.js';
 import {
   haversineKm,
   matchesFilter,
@@ -21,6 +22,7 @@ export function createLocalTools({
   getTimeTravel = () => globalThis.window?.__gevTimeTravel || null,
   runner = null,
   captureImage = captureLocalViewport,
+  speakHook = null,
 } = {}) {
   const camera = () => {
     try {
@@ -167,6 +169,31 @@ export function createLocalTools({
       return { ok: true };
     },
   };
+
+  Object.assign(
+    handlers,
+    packHandlers({
+      memory,
+      watches,
+      getGlobe,
+      getTimeTravel,
+      runner,
+      captureImage,
+      camera,
+      speak: (text) => speakHook?.(text),
+      fetchJson: async (url, body) => {
+        const response = await fetch(url, {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(data?.error || `HTTP ${response.status} from ${url}`);
+        return data;
+      },
+    }),
+  );
 
   return {
     has: (name) => isLocalTool(name) && typeof handlers[name] === 'function',

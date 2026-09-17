@@ -106,7 +106,13 @@ export function createLocalVoiceSession({
       onAlert: (alert) => deliverAlert(alert),
     });
     watches.start();
-    localTools = createTools({ memory, watches, getGlobe, runner });
+    localTools = createTools({
+      memory,
+      watches,
+      getGlobe,
+      runner,
+      speakHook: (text) => deliverAlert({ text, watchId: null }),
+    });
   }
 
   /** Spoken through the live session when possible, otherwise toast + browser speech. */
