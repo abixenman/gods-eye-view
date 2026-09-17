@@ -44,11 +44,15 @@ export function applyMemoryContext(session, event) {
   return content;
 }
 
-/** Speak an unprompted alert and keep it in the conversation history. */
+/**
+ * Speak an unprompted alert and keep it in the conversation history. `origin`
+ * names the peer globe an alert came from (peers.js) so hubs never forward it
+ * a second time.
+ */
 export async function speakNotice(
   session,
   text,
-  { send, worker, log = () => {}, createSpeechQueue },
+  { send, worker, log = () => {}, createSpeechQueue, origin = null },
 ) {
   const turnId = randomUUID();
   const speech = createSpeechQueue({
@@ -61,7 +65,7 @@ export async function speakNotice(
   });
   log('notice', { turnId, text });
   session.messages.push({ role: 'assistant', content: `(Alert) ${text}` });
-  send({ type: 'notice', turnId, text });
+  send({ type: 'notice', turnId, text, ...(origin ? { origin } : {}) });
   speech.enqueue(text);
   await speech.finish();
 }

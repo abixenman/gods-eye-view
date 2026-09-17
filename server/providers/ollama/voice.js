@@ -496,6 +496,8 @@ export function attachVoiceWebSocket(
 
     // Remote hub: let companion pages drive this session with the same
     // turn queue the browser uses; audio_end from a remote is a WAV utterance.
+    // Peer federation (peers.js): speak "From <peer>" alerts; relay places.
+    const speech = { send, worker, createSpeechQueue };
     hub.registerSession(session.id, {
       sendText: (text) =>
         enqueueTurn(() =>
@@ -509,6 +511,9 @@ export function attachVoiceWebSocket(
         ),
       interrupt: () => session.turnAbort?.abort(),
       sendUtterance: (bytes) => enqueueTurn(() => handleUtterance(bytes)),
+      notify: (text, extra) =>
+        enqueueTurn(() => speakNotice(session, text, { ...extra, ...speech })),
+      deliver: (frame) => send(frame),
     });
 
     ws.on('message', (raw, isBinary) => {

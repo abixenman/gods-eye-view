@@ -1,3 +1,5 @@
+import * as peers from './peers.js';
+
 /**
  * Registry of local-voice tool packs. Each pack exports `schemas` (tool
  * definitions in the same shape as localToolSchemas.js) and
@@ -7,7 +9,7 @@
  *
  * Add a pack by importing it here; nothing else needs to change.
  */
-export const LOCAL_TOOL_PACKS = Object.freeze([]);
+export const LOCAL_TOOL_PACKS = Object.freeze([peers]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);

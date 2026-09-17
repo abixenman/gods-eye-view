@@ -1,4 +1,5 @@
 import { WebSocketServer } from 'ws';
+import { sanitizePlace } from './peers.js';
 
 /**
  * Companion hub for the local voice assistant. A phone or second screen opens
@@ -12,8 +13,13 @@ import { WebSocketServer } from 'ws';
  *   {type:'session', sessionId, frame}           every voice frame but audio_chunk
  *   {type:'ack', command, sessionId}             a command was forwarded
  *   {type:'error', error}                        a command could not be forwarded
+ *   {type:'hello', peer:{name}}                  reply to a remote's hello
  * Frames from remotes:
  *   {type:'text', text} | {type:'interrupt'} | binary WAV + {type:'audio_end'}
+ *   {type:'hello', peer:{name}}                  a peer globe introduces itself
+ *   {type:'peer_place', place, origin}           a place shared by a peer globe
+ * Envelopes carry `peer` (this hub's name) once peers.js has named the hub;
+ * forwarded frames carry `origin` (see server/providers/ollama/peers.js).
  */
 export const REMOTE_WS_PATH = '/api/voice/remote';
 export const NO_SESSION_ERROR =
@@ -23,10 +29,10 @@ export const NO_REMOTE_AUDIO_ERROR =
 export const MAX_REMOTE_UTTERANCE_BYTES = 2 * 1024 * 1024;
 const OPEN = 1;
 
-export function createRemoteHub({ log = () => {} } = {}) {
+export function createRemoteHub({ log = () => {}, name = null } = {}) {
   /** sessionId -> { sendText, interrupt, sendUtterance }; insertion order is recency. */
   const sessions = new Map();
-  /** remote socket -> { audio } */
+  /** remote socket -> { audio, peer } */
   const remotes = new Map();
 
   const activeIds = () => [...sessions.keys()];
@@ -103,6 +109,29 @@ export function createRemoteHub({ log = () => {} } = {}) {
         bytes: bytes.length,
       });
     }
+    if (event.type === 'hello') {
+      // Peer federation (peers.js): a peer globe names itself; answer in kind.
+      state.peer = {
+        name: String(event.peer?.name || '').slice(0, 80) || null,
+      };
+      sendTo(remote, { type: 'hello', peer: { name: hub.name } });
+      return;
+    }
+    if (event.type === 'peer_place') {
+      // A place shared by a peer globe: mirror to remotes, hand to the session.
+      const place = sanitizePlace(event.place);
+      if (!place) return reject('Invalid place');
+      const origin = String(event.origin || state.peer?.name || 'peer');
+      const frame = { type: 'peer_place', place, origin };
+      hub.publish(target?.id ?? null, frame);
+      target?.handlers.deliver?.(frame);
+      sendTo(remote, {
+        type: 'ack',
+        command: 'peer_place',
+        sessionId: target?.id ?? null,
+      });
+      return;
+    }
     // Unknown frames are accepted and ignored, as on the voice socket.
   }
 
@@ -130,6 +159,8 @@ export function createRemoteHub({ log = () => {} } = {}) {
   }
 
   const hub = {
+    /** Display name peers.js gives this instance; null until federated. */
+    name,
     /** A voice session announces itself; the newest registration is the target. */
     registerSession(sessionId, handlers = {}) {
       sessions.delete(sessionId);
@@ -147,11 +178,16 @@ export function createRemoteHub({ log = () => {} } = {}) {
     publish(sessionId, frame) {
       if (!frame || typeof frame.type !== 'string') return 0;
       if (frame.type === 'audio_chunk' || !remotes.size) return 0;
-      return broadcast({ type: 'session', sessionId, frame });
+      return broadcast({
+        type: 'session',
+        sessionId,
+        frame,
+        ...(hub.name ? { peer: hub.name } : {}),
+      });
     },
     /** Adopt one connected remote socket (ws or any EventEmitter-like fake). */
     attachRemote(remote) {
-      remotes.set(remote, { audio: Buffer.alloc(0) });
+      remotes.set(remote, { audio: Buffer.alloc(0), peer: null });
       remote.on?.('message', (raw, isBinary) =>
         handleMessage(remote, raw, isBinary),
       );
@@ -196,6 +232,10 @@ export function createRemoteHub({ log = () => {} } = {}) {
     },
     get activeSessionId() {
       return active()?.id ?? null;
+    },
+    /** { id, handlers } of the newest session, for peers.js; null when none. */
+    get activeSession() {
+      return active();
     },
     get sessionIds() {
       return activeIds();
