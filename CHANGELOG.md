@@ -44,6 +44,13 @@
   a new `/api/voice/speaker` route. Fetch the 29 MB Apache-2.0 model with
   `node scripts/fetch-speaker-model.mjs`; without it the feature stays off.
   Embeddings only, never audio. See docs/SPEAKER-ID.md.
+- Add the cinematic Auto-Director to the local voice assistant: "make me a
+  60-second tour of the busiest airspace" builds a Director scene from live
+  records (densest 1° cell, highest and most varied aircraft; ships, fires,
+  quakes and an orbit of the current view are the other themes), loads it
+  through the Director's validated document import, plays it and speaks a
+  narration line at each shot. `stop_tour` stops it; `save_tour` keeps it as
+  a named scene and downloads a `.gevbundle.json`. See docs/AUTO-DIRECTOR.md.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and

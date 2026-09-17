@@ -23,6 +23,9 @@ export const LOCAL_TOOL_PACKS = Object.freeze([cameraSweep]);
 import * as speaker from './speaker.js';
 
 export const LOCAL_TOOL_PACKS = Object.freeze([speaker]);
+import * as director from './director.js';
+
+export const LOCAL_TOOL_PACKS = Object.freeze([director]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);

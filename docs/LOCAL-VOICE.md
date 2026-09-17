@@ -49,6 +49,7 @@ adapter (`src/voice/localTools.js`):
 | "Listen to this station" / "Listen to BBC World Service" / "What did they just say?" / "Did they mention the highway?" | `radio_listen`, `radio_transcript`, `radio_search`, `radio_stop` | Server-side ffmpeg + Whisper on a live stream; one hour of transcript per station (see docs/RADIO-LISTEN.md). |
 | "Scan the cameras downtown and tell me which streets are jammed" / "Clear the camera marks" | `camera_sweep`, `clear_camera_marks` | Frames from the nearest CCTV cameras go to the vision model in one batch; red/amber/green pins per camera (see docs/CAMERA-SWEEP.md). |
 | "This is Anthony" / "Who am I?" / "Forget Anthony's voice" | `enroll_voice`, `who_is_speaking`, `list_voices`, `forget_voice` | Voice prints on the server; later transcripts are tagged `HEARD (Anthony):` (see docs/SPEAKER-ID.md). |
+| "Make me a 60-second tour of the busiest airspace" / "Stop the tour" / "Save that tour as Texas rush" | `make_tour`, `stop_tour`, `save_tour` | Auto-Director: builds, plays and narrates a Director scene from live records (see docs/AUTO-DIRECTOR.md). |
 
 Fast paths: a bare "fly to <Austin, SF, NYC, Tokyo, London, Paris, Dubai, DC>"
 and "remember this place as X" skip the model entirely (about 300 ms).
