@@ -1,5 +1,12 @@
 # Changelog
 
+- Add time travel: rewind and scrub the last 15 minutes of live flights,
+  military flights and ships from an in-memory position history (32 MB cap).
+  A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and
+  LIVE; `[` / `]` keys and `window.__gevTimeTravel` drive it programmatically.
+  Live layer visuals are hidden (not disabled) while rewound. See
+  docs/TIME-TRAVEL.md.
+
 - Distinguish PARTIAL vessel snapshots from STALE data in the layer panel, with
   accepted-record counts and unchanged retention, freshness and outage safeguards.
 
