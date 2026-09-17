@@ -1,5 +1,16 @@
 # Changelog
 
+- Local voice gains eyes, memory, alerts and reports: `ask_about_view` sends a
+  viewport screenshot to a local vision model (qwen3-vl:4b) for "what does that
+  sign say" questions; `remember_place` / `go_to_saved_place` and recall of
+  recent targets persist across sessions; `watch_add` creates standing alerts
+  that the assistant speaks unprompted when new records match; `data_report`
+  groups and aggregates loaded layers ("which airlines are over Texas", camera
+  density by cell). Whisper now detects the spoken language and the reply is
+  voiced in it (Spanish, French, German, Italian, Portuguese Piper voices).
+  Opt-in wake word via Porcupine (`PICOVOICE_ACCESS_KEY`). Replies are spoken
+  without markdown.
+
 - Add a fully local voice path behind `AI_PROVIDER=ollama`: browser Silero VAD
   decides utterance boundaries hands-free, one pre-warmed Python worker runs
   faster-whisper (CUDA when available) and Piper, and Ollama handles reasoning

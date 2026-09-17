@@ -185,10 +185,10 @@ export function createAudioWorker({
         { timeoutMs: timeoutMs || 60_000 },
       );
     },
-    async synthesize(text, { onChunk, timeoutMs } = {}) {
+    async synthesize(text, { onChunk, timeoutMs, language } = {}) {
       await ensureStarted();
       return request(
-        { op: 'tts', text },
+        { op: 'tts', text, language },
         { onChunk, timeoutMs: timeoutMs || 60_000 },
       );
     },

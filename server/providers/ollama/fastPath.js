@@ -65,3 +65,38 @@ function normalize(text) {
     .trim()
     .replace(/\.$/, '');
 }
+
+const REMEMBER =
+  /^(?:(?:please|ok|okay|hey)\s+)*(?:remember|save|bookmark|mark)\s+(?:this|the\s+current|my\s+current|the)\s*(?:place|view|spot|location|position|area)?\s+(?:as|called|named)\s+(?<name>.+?)(?:\s+please)?$/i;
+const CALL_THIS =
+  /^(?:(?:please|ok|okay)\s+)*call\s+(?:this|the\s+current)\s*(?:place|view|spot|location|position|area)?\s+(?<name>.+?)(?:\s+please)?$/i;
+
+/** "Remember this place as home" needs no model: the name is in the sentence. */
+export function deterministicRemember(text) {
+  const value = String(text || '')
+    .trim()
+    .replace(/[.!?]+$/, '');
+  const match = REMEMBER.exec(value) || CALL_THIS.exec(value);
+  if (!match) return null;
+  const name = match.groups.name
+    .replace(/^["'\u201c\u2018]|["'\u201d\u2019]$/g, '')
+    .replace(/^(?:my|the)\s+/i, '')
+    .trim();
+  if (!name || name.length > 40) return null;
+  return { name: 'remember_place', arguments: { name } };
+}
+
+/** Spoken confirmation for a deterministic command, given its tool result. */
+export function deterministicConfirmation(call, result) {
+  if (!call) return '';
+  if (call.name === 'fly_to_location') {
+    const label = result?.label || flyToLabel(call.arguments.locationId);
+    return `Flying to ${label}.`;
+  }
+  if (call.name === 'remember_place') {
+    if (result?.ok === false)
+      return `I could not save that: ${result.error || 'unknown error'}.`;
+    return `Saved this view as ${result?.saved || call.arguments.name}.`;
+  }
+  return '';
+}

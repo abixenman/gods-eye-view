@@ -6,9 +6,16 @@ import { GEV_REALTIME_TOOLS } from '../openai/tools.js';
 import { realtimeInstructions } from '../openai/instructions.js';
 import { sharedAudioWorker } from './worker.js';
 import { streamChat } from './chat.js';
-import { createSentenceSplitter } from './sentences.js';
+import { createSentenceSplitter, stripMarkdown } from './sentences.js';
 import { trimHistory } from './history.js';
-import { deterministicFlyTo, flyToLabel } from './fastPath.js';
+import {
+  deterministicFlyTo,
+  deterministicRemember,
+  deterministicConfirmation,
+} from './fastPath.js';
+import { LOCAL_TOOL_SCHEMAS } from '../../../src/voice/localToolSchemas.js';
+import { answerVisually } from './vision.js';
+import { applyMemoryContext, speakNotice } from './sessionExtras.js';
 
 /**
  * Local voice WebSocket: one connection per mic session. The browser sends
@@ -22,10 +29,12 @@ export const MAX_TOOL_ROUNDS = 4;
 export const TOOL_RESULT_TIMEOUT_MS = 10_000;
 const MAX_UTTERANCE_BYTES = 2 * 1024 * 1024;
 
-const tools = GEV_REALTIME_TOOLS.map(({ name, description, parameters }) => ({
-  type: 'function',
-  function: { name, description, parameters },
-}));
+const tools = [...GEV_REALTIME_TOOLS, ...LOCAL_TOOL_SCHEMAS].map(
+  ({ name, description, parameters }) => ({
+    type: 'function',
+    function: { name, description, parameters },
+  }),
+);
 const locationIds =
   GEV_REALTIME_TOOLS.find((tool) => tool.name === 'fly_to_location')?.parameters
     ?.properties?.locationId?.enum || [];
@@ -38,6 +47,26 @@ function logLocalVoice(event, payload = {}) {
     .then(() => mkdir(dir, { recursive: true }))
     .then(() => appendFile(join(dir, 'local-voice.jsonl'), line))
     .catch(() => {});
+}
+
+const LANGUAGE_NAMES = {
+  en: 'English',
+  es: 'Spanish',
+  fr: 'French',
+  de: 'German',
+  it: 'Italian',
+  pt: 'Portuguese',
+  nl: 'Dutch',
+  ja: 'Japanese',
+  zh: 'Chinese',
+  ko: 'Korean',
+  ru: 'Russian',
+  ar: 'Arabic',
+  hi: 'Hindi',
+};
+
+function languageName(code) {
+  return LANGUAGE_NAMES[code] || code;
 }
 
 function voiceModel() {
@@ -93,11 +122,22 @@ export async function runTurn(session, text, deps) {
     signal: turnAbort.signal,
     log,
   });
-  session.messages.push({ role: 'user', content: String(text).slice(0, 4000) });
+  const spoken = String(text).slice(0, 4000);
+  session.messages.push({
+    role: 'user',
+    content:
+      session.language && session.language !== 'en'
+        ? `${spoken}
+
+(The user spoke ${languageName(session.language)}; reply in that language.)`
+        : spoken,
+  });
   let content = '';
   let rounds = 0;
   let calls = null;
-  const fast = deterministicFlyTo(text, { locationIds });
+  let visionAnswered = false;
+  const fast =
+    deterministicFlyTo(text, { locationIds }) || deterministicRemember(text);
   if (fast) {
     log('turn.fast_path', { turnId, text, call: fast });
     calls = [{ function: fast }];
@@ -107,15 +147,14 @@ export async function runTurn(session, text, deps) {
       if (turnAbort.signal.aborted) return;
       if (fast && rounds === 1 && !calls) {
         // The deterministic command already ran; confirm it without a model
-        // round trip. The tool result carries the resolved place label.
-        const lastTool = session.messages.at(-1);
-        let label = flyToLabel(fast.arguments.locationId);
+        // round trip using the tool result.
+        let toolResult = null;
         try {
-          label = JSON.parse(lastTool?.content || '{}').label || label;
+          toolResult = JSON.parse(session.messages.at(-1)?.content || 'null');
         } catch {
-          /* keep the id */
+          /* keep null */
         }
-        content = `Flying to ${label}.`;
+        content = deterministicConfirmation(fast, toolResult);
         speech.enqueue(content);
         break;
       }
@@ -168,6 +207,23 @@ export async function runTurn(session, text, deps) {
         send({ type: 'tool_call', callId, turnId, name, arguments: args });
         const result = await awaitToolResult(session, callId, turnAbort.signal);
         log('tool_result', { turnId, callId, ok: result?.ok !== false });
+        if (name === 'ask_about_view' && result?.vision && result?.image) {
+          const { image, ...rest } = result;
+          session.messages.push(
+            { role: 'assistant', tool_calls: [call] },
+            {
+              role: 'tool',
+              name,
+              content: JSON.stringify(rest).slice(0, 2000),
+            },
+          );
+          content = await answerVisually(
+            { question: result.question, image, context: result.context },
+            { speech, signal: turnAbort.signal, chat, log },
+          );
+          visionAnswered = true;
+          break;
+        }
         session.messages.push(
           { role: 'assistant', tool_calls: [call] },
           {
@@ -178,8 +234,10 @@ export async function runTurn(session, text, deps) {
         );
       }
       calls = null;
+      if (visionAnswered) break;
     }
     if (turnAbort.signal.aborted) return;
+    content = stripMarkdown(content);
     session.messages.push({ role: 'assistant', content });
     send({ type: 'text', turnId, text: content });
     await speech.finish();
@@ -236,6 +294,7 @@ export function createSpeechQueue({
       const sentence = queue.shift();
       try {
         await worker.synthesize(sentence, {
+          language: session.language,
           onChunk: (chunk) => {
             if (signal?.aborted || discarded) return;
             send({
@@ -256,9 +315,10 @@ export function createSpeechQueue({
   }
   return {
     enqueue(sentence) {
-      if (!enabled || !sentence || signal?.aborted) return;
+      const clean = stripMarkdown(sentence);
+      if (!enabled || !clean || signal?.aborted) return;
       discarded = false;
-      queue.push(sentence);
+      queue.push(clean);
       if (!running) running = drain().finally(() => (running = null));
     },
     discardUnspoken() {
@@ -329,6 +389,7 @@ export function attachVoiceWebSocket(
       messages: [{ role: 'system', content: realtimeInstructions() }],
       pending: new Map(),
       turnAbort: null,
+      language: null,
       turns: Promise.resolve(),
       closeSignal: closeController.signal,
     };
@@ -395,8 +456,15 @@ export function attachVoiceWebSocket(
         });
         return;
       }
+      if (
+        transcript.language &&
+        (transcript.languageProbability ?? 1) >= 0.6 &&
+        transcript.text
+      )
+        session.language = String(transcript.language).toLowerCase();
       logLocalVoice('transcript', {
         sessionId: session.id,
+        language: transcript.language,
         text: transcript.text,
         sttMs: transcript.sttMs,
         durationMs: transcript.durationMs,
@@ -406,6 +474,7 @@ export function attachVoiceWebSocket(
         type: 'transcript',
         text: transcript.text,
         noSpeech: Boolean(transcript.noSpeech),
+        language: transcript.language,
         durationMs: transcript.durationMs,
         sttMs: transcript.sttMs,
       });
@@ -462,6 +531,26 @@ export function attachVoiceWebSocket(
       }
       if (event.type === 'interrupt') {
         session.turnAbort?.abort();
+        return;
+      }
+      if (event.type === 'context') {
+        applyMemoryContext(session, event);
+        return;
+      }
+      if (event.type === 'notify') {
+        const text = String(event.text || '')
+          .trim()
+          .slice(0, 400);
+        if (text)
+          void enqueueTurn(() =>
+            speakNotice(session, text, {
+              send,
+              worker,
+              createSpeechQueue,
+              log: (name, payload) =>
+                logLocalVoice(name, { sessionId: session.id, ...payload }),
+            }),
+          );
         return;
       }
       // map_event and unknown frames are accepted and ignored.

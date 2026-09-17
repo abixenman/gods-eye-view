@@ -8,6 +8,10 @@ import { silenceRadioForVoice } from './realtimeProtocol.js';
 import { createLocalWsBackend } from './localWsBackend.js';
 import { createVadCapture } from './localSpeechCapture.js';
 import { createLocalPlayback } from './localAudioPlayback.js';
+import { createWakeWordListener, readWakeWordSettings } from './wakeWord.js';
+import { createLocalMemory } from './localMemory.js';
+import { createWatchEngine } from './watchEngine.js';
+import { createLocalTools } from './localTools.js';
 import {
   LOCAL_VOICE_STATUS,
   parseLocalFrame,
@@ -36,7 +40,19 @@ export function createLocalVoiceSession({
   getUserMedia = (constraints) =>
     navigator.mediaDevices.getUserMedia(constraints),
   bargeIn = false,
+  fetchConfig = () =>
+    fetch('/api/voice/config')
+      .then((response) => (response.ok ? response.json() : null))
+      .catch(() => null),
+  createWakeWord = createWakeWordListener,
+  memory = createLocalMemory(),
+  getGlobe = () => globalThis.window?.__godsEyeView || null,
+  createWatches = (options) => createWatchEngine(options),
+  createTools = (options) => createLocalTools(options),
 }) {
+  let wakeWord = null;
+  let watches = null;
+  let localTools = null;
   let status = 'idle';
   let socket = null;
   let stream = null;
@@ -70,6 +86,74 @@ export function createLocalVoiceSession({
     emit({ type: 'state', state, detail });
     if (state !== 'listening' && state !== 'executing')
       input.setVoiceSpeaker('idle');
+    if (wakeWord) {
+      if (state === 'idle' || state === 'error') void wakeWord.start();
+      else void wakeWord.pause();
+    }
+  }
+
+  /** Memory, standing alerts and local tools; waits for the globe handle. */
+  function ensureLocalServices(attempt = 0) {
+    if (localTools || signal?.aborted) return;
+    const globe = getGlobe();
+    if (!globe?.dataManager) {
+      if (attempt < 40) setTimeout(() => ensureLocalServices(attempt + 1), 500);
+      return;
+    }
+    watches = createWatches({
+      dataManager: globe.dataManager,
+      getCamera: () => globe.styleManager?.getCameraState?.() || null,
+      onAlert: (alert) => deliverAlert(alert),
+    });
+    watches.start();
+    localTools = createTools({ memory, watches, getGlobe, runner });
+  }
+
+  /** Spoken through the live session when possible, otherwise toast + browser speech. */
+  function deliverAlert(alert) {
+    debugLog('local.alert', { watchId: alert.watchId, text: alert.text });
+    const globe = getGlobe();
+    try {
+      globe?.styleManager?._showToast?.(`⚠ ${alert.text}`);
+    } catch {
+      /* toast is best effort */
+    }
+    if (
+      isActive() &&
+      socket &&
+      backend.send({ type: 'notify', text: alert.text })
+    )
+      return;
+    emit({
+      type: 'transcript',
+      role: 'assistant',
+      text: `⚠ ${alert.text}`,
+      final: true,
+    });
+    speakWithBrowser(alert.text);
+  }
+
+  /** Opt-in wake word: arm when configured, only while no session runs. */
+  async function armWakeWord() {
+    const config = await fetchConfig();
+    const settings = readWakeWordSettings({ config: config?.wakeWord });
+    if (!settings.enabled || wakeWord || signal?.aborted) return;
+    wakeWord = createWakeWord({
+      accessKey: settings.accessKey,
+      keyword: settings.keyword,
+      onDetect: () => {
+        debugLog('local.wake_word', { keyword: settings.keyword });
+        if (!isActive()) void start();
+      },
+      onError: (error) => {
+        debugLog('local.wake_word.error', { error: error.message });
+        if (ui?.helpDetail)
+          ui.helpDetail.textContent = `Wake word off: ${error.message}`;
+      },
+    });
+    if (ui?.helpDetail)
+      ui.helpDetail.textContent = `Say "${settings.keyword}" or tap MIC. Speak, pause, it answers.`;
+    if (!isActive()) void wakeWord.start();
   }
 
   function pauseRadioForVoice() {
@@ -197,6 +281,20 @@ export function createLocalVoiceSession({
     for (const event of localSessionEvents(frame)) emit(event);
     if (frame.type === 'ready') {
       serverInfo = frame;
+      backend.send({
+        type: 'context',
+        memory: memory.summary(),
+        watches: watches?.list().length || 0,
+      });
+      return;
+    }
+    if (frame.type === 'notice') {
+      emit({
+        type: 'transcript',
+        role: 'assistant',
+        text: `⚠ ${frame.text}`,
+        final: true,
+      });
       return;
     }
     if (frame.type === 'audio_chunk' || frame.type === 'audio_end') {
@@ -207,9 +305,28 @@ export function createLocalVoiceSession({
       setStatus('executing', LOCAL_VOICE_STATUS.running);
       let result;
       try {
-        result = await runAction(frame.name, frame.arguments || {}, {
-          isCurrent: () => isActive(),
-        });
+        if (localTools?.has(frame.name)) {
+          emit({
+            type: 'action-call',
+            name: frame.name,
+            arguments: frame.arguments || {},
+          });
+          result = await localTools.run(frame.name, frame.arguments || {});
+          emit({
+            type: 'action-result',
+            name: frame.name,
+            result: { ...result, image: result?.image ? '[image]' : undefined },
+          });
+        } else {
+          result = await runAction(frame.name, frame.arguments || {}, {
+            isCurrent: () => isActive(),
+          });
+          localTools?.noteActionResult(
+            frame.name,
+            frame.arguments || {},
+            result,
+          );
+        }
       } catch (error) {
         result = {
           ok: false,
@@ -283,8 +400,18 @@ export function createLocalVoiceSession({
     const wasActive = isActive();
     if (wasActive) debugLog('local.stop');
     teardown();
+    if (removeUi && wakeWord) {
+      void wakeWord.destroy();
+      wakeWord = null;
+    }
+    if (removeUi) {
+      watches?.destroy();
+      watches = null;
+      localTools = null;
+    }
     status = preserveStatus && !wasActive ? status : 'idle';
     if (!preserveStatus) status = 'idle';
+    if (wakeWord && !removeUi) void wakeWord.start();
     if (removeUi) {
       ui?.root?.remove?.();
       emit({ type: 'disposed' });
@@ -307,6 +434,8 @@ export function createLocalVoiceSession({
       sessionId,
       server: serverInfo,
       capture: capture?.kind || null,
+      watches: watches?.list() || [],
+      memory: memory.summary(),
     }),
   };
 
@@ -327,10 +456,12 @@ export function createLocalVoiceSession({
     },
     ignoreButtonClick: () => false,
     bindControls() {
+      ensureLocalServices();
       input.updateVoiceButtonLabel();
       if (ui?.helpDetail)
         ui.helpDetail.textContent =
           'Local voice: speak, pause, and it answers. Tap MIC to stop.';
+      void armWakeWord();
     },
   };
 }

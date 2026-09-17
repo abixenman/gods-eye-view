@@ -256,3 +256,49 @@ test('speech queue keeps chunk order and is a no-op without Piper', async () => 
   await none.finish();
   assert.deepEqual(silent.map((f) => f.type), ['audio_end']);
 });
+
+test('remember phrases resolve deterministically and confirmations read well', async () => {
+  const { deterministicRemember, deterministicConfirmation } = await import(
+    '../../server/providers/ollama/fastPath.js'
+  );
+  for (const [text, name] of [
+    ['Remember this place as my base', 'base'],
+    ['remember this as Home.', 'Home'],
+    ['Save the current view called the marina', 'marina'],
+    ['Call this place office', 'office'],
+    ['please bookmark this spot as "grandma"', 'grandma'],
+  ])
+    assert.deepEqual(
+      deterministicRemember(text),
+      { name: 'remember_place', arguments: { name } },
+      text,
+    );
+  for (const text of ['Remember to call mom', 'Save it', 'Take me home', ''])
+    assert.equal(deterministicRemember(text), null, text);
+  assert.equal(
+    deterministicConfirmation(
+      { name: 'remember_place', arguments: { name: 'base' } },
+      { ok: true, saved: 'base' },
+    ),
+    'Saved this view as base.',
+  );
+  assert.equal(
+    deterministicConfirmation(
+      { name: 'fly_to_location', arguments: { locationId: 'nyc' } },
+      null,
+    ),
+    'Flying to New York City.',
+  );
+});
+
+test('markdown is stripped from spoken text', async () => {
+  const { stripMarkdown } = await import(
+    '../../server/providers/ollama/sentences.js'
+  );
+  assert.equal(
+    stripMarkdown('You have **one** alert:\n- **ID:** w1\n- Trigger: `radius`\n\n## Done'),
+    'You have one alert:\nID: w1\nTrigger: radius\n\nDone',
+  );
+  assert.equal(stripMarkdown('Version 3.5 is *out* now.'), 'Version 3.5 is out now.');
+  assert.equal(stripMarkdown(''), '');
+});

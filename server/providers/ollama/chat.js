@@ -77,10 +77,14 @@ export async function streamChat({
   const timeout = setTimeout(() => controller.abort(), defaults.timeoutMs);
   const onAbort = () => controller.abort();
   signal?.addEventListener('abort', onAbort, { once: true });
+  // think === 'omit' sends no flag: qwen3-vl keeps reasoning in
+  // message.thinking only when the flag is absent.
   const thinkingCapable =
-    think === undefined
-      ? await modelSupportsThinking(model, { fetchImpl, baseUrl })
-      : Boolean(think !== false);
+    think === 'omit'
+      ? false
+      : think === undefined
+        ? await modelSupportsThinking(model, { fetchImpl, baseUrl })
+        : Boolean(think !== false);
   const payload = {
     model,
     stream: true,

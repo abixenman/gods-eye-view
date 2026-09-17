@@ -55,7 +55,11 @@ test('voice config advertises the provider and socket path from the environment'
       },
     ),
   );
-  assert.deepEqual(body, { provider: 'ollama', wsPath: '/api/voice/ws' });
+  assert.deepEqual(body, {
+    provider: 'ollama',
+    wsPath: '/api/voice/ws',
+    wakeWord: null,
+  });
   assert.match(headers['content-type'], /json/);
 });
 

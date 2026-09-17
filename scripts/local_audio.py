@@ -83,7 +83,7 @@ def free_vram_mb():
 
 # ------------------------------------------------------------------ Whisper
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small")
-WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "en")
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "auto")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto").lower()
 WHISPER_COMPUTE = os.getenv("WHISPER_COMPUTE_TYPE", "")
 WHISPER_MIN_FREE_VRAM_MB = int(os.getenv("WHISPER_MIN_FREE_VRAM_MB", "3000"))
@@ -237,6 +237,7 @@ def transcribe(request):
         "durationMs": duration_ms,
         "sourceRate": rate,
         "language": getattr(info, "language", language),
+        "languageProbability": round(float(getattr(info, "language_probability", 0) or 0), 3),
         "sttMs": int((time.perf_counter() - started) * 1000),
     }
 
@@ -244,6 +245,21 @@ def transcribe(request):
 # -------------------------------------------------------------------- Piper
 piper_voice = None
 piper_info = {"loaded": False, "model": None, "reason": None}
+
+# Language code -> Piper voice under .local/voices. TTS_VOICE_<LANG> overrides
+# (e.g. TTS_VOICE_ES=es_MX-claude-high); the default English voice is TTS_VOICE.
+DEFAULT_LANGUAGE_VOICES = {
+    "es": "es_ES-davefx-medium",
+    "fr": "fr_FR-siwis-medium",
+    "de": "de_DE-thorsten-medium",
+    "it": "it_IT-riccardo-x_low",
+    "pt": "pt_BR-faber-medium",
+}
+language_voices = {}
+
+
+def voice_path(name):
+    return os.path.join(os.getcwd(), ".local", "voices", f"{name}.onnx")
 
 
 def resolve_piper_model():
@@ -253,7 +269,30 @@ def resolve_piper_model():
     name = os.getenv("TTS_VOICE", "en_US-lessac-medium").strip()
     if not name:
         return ""
-    return os.path.join(os.getcwd(), ".local", "voices", f"{name}.onnx")
+    return voice_path(name)
+
+
+def voice_for_language(language):
+    """Return a loaded PiperVoice for a language code, or the default voice."""
+    code = str(language or "").lower().split("-")[0]
+    if not code or code == "en":
+        return piper_voice
+    if code in language_voices:
+        return language_voices[code] or piper_voice
+    name = os.getenv(f"TTS_VOICE_{code.upper()}", DEFAULT_LANGUAGE_VOICES.get(code, ""))
+    path = voice_path(name) if name else ""
+    if not path or not os.path.exists(path):
+        language_voices[code] = None
+        log(f"no Piper voice for language {code!r}; using the default voice")
+        return piper_voice
+    try:
+        from piper import PiperVoice
+        language_voices[code] = PiperVoice.load(path)
+        log(f"piper voice for {code}: {name}")
+    except Exception as error:
+        language_voices[code] = None
+        log(f"piper voice {name} failed to load: {error}")
+    return language_voices[code] or piper_voice
 
 
 def load_piper():
@@ -291,9 +330,10 @@ def synthesize(request):
     if piper_voice is None:
         raise RuntimeError(piper_info["reason"] or "text-to-speech is not loaded")
     text = str(request.get("text") or "").strip()
+    voice = voice_for_language(request.get("language"))
     seq = 0
     if text:
-        for chunk in piper_voice.synthesize(text, synthesis_config()):
+        for chunk in voice.synthesize(text, synthesis_config()):
             data = chunk.audio_int16_bytes
             if not data:
                 continue

@@ -19,6 +19,12 @@ function ollamaProxy({ sourceRoot = defaultSourceRoot } = {}) {
         JSON.stringify({
           provider: process.env.AI_PROVIDER || 'openai',
           wsPath: process.env.VOICE_WS_PATH || '/api/voice/ws',
+          wakeWord: process.env.PICOVOICE_ACCESS_KEY
+            ? {
+                accessKey: process.env.PICOVOICE_ACCESS_KEY,
+                keyword: process.env.WAKE_WORD || 'Computer',
+              }
+            : null,
         }),
       );
     });
