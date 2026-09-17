@@ -7,6 +7,9 @@
 import { install as installIncidents } from './incidents.js';
 
 export const FEATURE_ROUTES = Object.freeze([installIncidents]);
+import { install as installRadio } from './radio.js';
+
+export const FEATURE_ROUTES = Object.freeze([installRadio]);
 
 export function installFeatureRoutes(middlewares, server) {
   for (const install of FEATURE_ROUTES) install(middlewares, server);

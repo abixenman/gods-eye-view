@@ -14,6 +14,9 @@ export const LOCAL_TOOL_PACKS = Object.freeze([watchkeeping, prediction]);
 import * as incidents from './incidents.js';
 
 export const LOCAL_TOOL_PACKS = Object.freeze([incidents]);
+import * as radio from './radio.js';
+
+export const LOCAL_TOOL_PACKS = Object.freeze([radio]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);
