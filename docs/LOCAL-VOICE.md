@@ -46,6 +46,7 @@ adapter (`src/voice/localTools.js`):
 | "Tell me when a plane comes within 20 km of here" / "Alert me on quakes over magnitude 5" | `watch_add` | Standing alerts, persisted; spoken unprompted when a new record matches. |
 | "What alerts do I have?" / "Clear my alerts" | `watch_list`, `watch_clear` | |
 | "Rewind ten minutes" / "Back to live" | `rewind_time`, `resume_live` | Drives the time-travel replay (see docs/TIME-TRAVEL.md). |
+| "This is Anthony" / "Who am I?" / "Forget Anthony's voice" | `enroll_voice`, `who_is_speaking`, `list_voices`, `forget_voice` | Voice prints on the server; later transcripts are tagged `HEARD (Anthony):` (see docs/SPEAKER-ID.md). |
 
 Fast paths: a bare "fly to <Austin, SF, NYC, Tokyo, London, Paris, Dubai, DC>"
 and "remember this place as X" skip the model entirely (about 300 ms).
@@ -70,6 +71,7 @@ and browser speech. At most 12 watches, one alert every 4 s.
 | `WHISPER_LANGUAGE` | `auto` | detected language drives the reply language and voice |
 | `TTS_VOICE`, `TTS_VOICE_<LANG>` | `en_US-ryan-high`, per-language defaults | voices live in `.local/voices` |
 | `PICOVOICE_ACCESS_KEY`, `WAKE_WORD` | unset | wake word is off until a key is present |
+| `SPEAKER_MODEL` | `.local/models/wespeaker_en_voxceleb_CAM++.onnx` | `npm run speaker:fetch` downloads it (29 MB, Apache-2.0); speaker identity is off without it |
 
 On the Ollama service: `OLLAMA_MAX_LOADED_MODELS=2`, `OLLAMA_KEEP_ALIVE=30m`,
 `OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_CONTEXT_LENGTH=16384`.
@@ -81,6 +83,8 @@ On the Ollama service: `OLLAMA_MAX_LOADED_MODELS=2`, `OLLAMA_KEEP_ALIVE=30m`,
   select other cases.
 - `npm run qa:tool-calls --models a,b` scores tool accuracy and latency.
 - `.venv-local\Scripts\python scripts\bench_stt.py` benchmarks Whisper configs.
+- `.venv-local\Scripts\python scripts\speaker_selftest.py` checks the speaker
+  fbank and that Piper voices are told apart at the identity threshold.
 - `.gev-logs/local-voice.jsonl` (server) and `.gev-logs/realtime-conversations.jsonl`
   (browser adapter) record every turn.
 
@@ -89,4 +93,5 @@ On the Ollama service: `OLLAMA_MAX_LOADED_MODELS=2`, `OLLAMA_KEEP_ALIVE=30m`,
 - Turn-based: it answers after you pause, and pauses the mic while speaking.
 - Vision sees only what is on screen at the moment of the question.
 - Alerts run only while the app tab is open.
-- Memory and watches are per browser profile (localStorage).
+- Memory and watches are per browser profile (localStorage); voice profiles
+  are per machine (`.gev-cache/voice-profiles.json`).

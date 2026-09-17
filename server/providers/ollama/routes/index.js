@@ -4,7 +4,9 @@
  * function (middlewares, server) => void that installs its own routes under
  * /api/voice/. Add a pack by importing it here.
  */
-export const FEATURE_ROUTES = Object.freeze([]);
+import { install as installSpeaker } from './speaker.js';
+
+export const FEATURE_ROUTES = Object.freeze([installSpeaker]);
 
 export function installFeatureRoutes(middlewares, server) {
   for (const install of FEATURE_ROUTES) install(middlewares, server);

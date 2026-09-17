@@ -1,5 +1,14 @@
 # Changelog
 
+- Local voice learns who is talking. `enroll_voice` ("this is Anthony",
+  "remember my voice as Anthony") turns the last three utterances into
+  WeSpeaker CAM++ voice prints (onnxruntime CPU, numpy fbank, no torch) kept in
+  `.gev-cache/voice-profiles.json`; every later `transcript` frame carries
+  `speaker: {name, score} | null`, the mic caption shows `HEARD (Anthony):`,
+  and `who_is_speaking`, `list_voices`, `forget_voice` manage profiles through
+  a new `/api/voice/speaker` route. Fetch the 29 MB Apache-2.0 model with
+  `node scripts/fetch-speaker-model.mjs`; without it the feature stays off.
+  Embeddings only, never audio. See docs/SPEAKER-ID.md.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and

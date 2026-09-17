@@ -7,7 +7,9 @@
  *
  * Add a pack by importing it here; nothing else needs to change.
  */
-export const LOCAL_TOOL_PACKS = Object.freeze([]);
+import * as speaker from './speaker.js';
+
+export const LOCAL_TOOL_PACKS = Object.freeze([speaker]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);
