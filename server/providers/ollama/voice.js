@@ -9,6 +9,7 @@ import { streamChat } from './chat.js';
 import { createSentenceSplitter } from './sentences.js';
 import { trimHistory } from './history.js';
 import { deterministicFlyTo, flyToLabel } from './fastPath.js';
+import { sharedRemoteHub } from './remote.js';
 
 /**
  * Local voice WebSocket: one connection per mic session. The browser sends
@@ -306,6 +307,9 @@ export function attachVoiceWebSocket(
       logLocalVoice('worker.start_failed', { error: error?.message }),
     );
   if (warmModel) void warmVoiceModel();
+  // Companion remotes (remote.html, server/providers/ollama/remote.js) mirror
+  // this session's text frames and may inject commands; audio never leaves.
+  const hub = sharedRemoteHub();
   const marker = '__gevVoiceUpgrade';
   if (httpServer[marker]) httpServer.off('upgrade', httpServer[marker]);
   const wss = new WebSocketServer({
@@ -336,6 +340,8 @@ export function attachVoiceWebSocket(
     const send = (payload) => {
       if (ws.readyState !== ws.OPEN) return false;
       ws.send(JSON.stringify(payload));
+      // Remote hub: text frames only (publish drops audio_chunk itself).
+      hub.publish(session.id, payload);
       return true;
     };
     logLocalVoice('session.open', { sessionId: session.id });
@@ -419,6 +425,23 @@ export function attachVoiceWebSocket(
       });
     };
 
+    // Remote hub: let companion pages drive this session with the same
+    // turn queue the browser uses; audio_end from a remote is a WAV utterance.
+    hub.registerSession(session.id, {
+      sendText: (text) =>
+        enqueueTurn(() =>
+          runTurn(session, text, {
+            send,
+            worker,
+            chat,
+            log: (name, payload) =>
+              logLocalVoice(name, { sessionId: session.id, ...payload }),
+          }),
+        ),
+      interrupt: () => session.turnAbort?.abort(),
+      sendUtterance: (bytes) => enqueueTurn(() => handleUtterance(bytes)),
+    });
+
     ws.on('message', (raw, isBinary) => {
       if (isBinary) {
         if (audio.length + raw.length > MAX_UTTERANCE_BYTES) {
@@ -474,6 +497,7 @@ export function attachVoiceWebSocket(
       });
       closeController.abort();
       session.turnAbort?.abort();
+      hub.unregisterSession(session.id); // Remote hub: tell companions.
       for (const finish of session.pending.values())
         finish({ ok: false, error: 'Session closed' });
       session.pending.clear();

@@ -1,6 +1,7 @@
 import { defaultSourceRoot } from './common/source-root.js';
 import { handleHudSummary } from './ollama/hud-summary.js';
 import { attachVoiceWebSocket } from './ollama/voice.js';
+import { installRemoteHub } from './ollama/remote.js';
 import { VAD_ASSET_ROUTE, createVadAssetHandler } from './ollama/vad-assets.js';
 import { createDebugLogHandler } from './openai/debug-log.js';
 
@@ -24,6 +25,9 @@ function ollamaProxy({ sourceRoot = defaultSourceRoot } = {}) {
     });
     middlewares.use(VAD_ASSET_ROUTE, createVadAssetHandler());
     attachVoiceWebSocket(server);
+    // Phone / second-screen companion socket (remote.html); no-op without an
+    // HTTP server, exactly like the voice socket above.
+    installRemoteHub(server);
   }
   return {
     name: 'ollama-local-proxy',

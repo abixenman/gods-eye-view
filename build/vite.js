@@ -1,6 +1,12 @@
 import { applicationHtmlPlugin } from './application-html.js';
 import cesium from 'vite-plugin-cesium';
 
+/** Documents built by default: the globe and the local-voice companion page. */
+export const BROWSER_PAGES = Object.freeze({
+  main: 'index.html',
+  remote: 'remote.html',
+});
+
 /** Build browser assets with explicit inputs; never load environment or providers. */
 export function createBrowserViteConfig({
   plugins = [],
@@ -10,6 +16,8 @@ export function createBrowserViteConfig({
   aiProvider,
   host = 'localhost',
   port = 4173,
+  // Pass null/false to keep Vite's single index.html default.
+  inputs = BROWSER_PAGES,
 } = {}) {
   return {
     plugins: [cesium(), applicationHtmlPlugin(), ...plugins],
@@ -37,6 +45,9 @@ export function createBrowserViteConfig({
         ? { 'import.meta.env.GEV_AI_PROVIDER': JSON.stringify(aiProvider) }
         : {}),
     },
-    build: { chunkSizeWarningLimit: 1500 },
+    build: {
+      chunkSizeWarningLimit: 1500,
+      ...(inputs ? { rollupOptions: { input: { ...inputs } } } : {}),
+    },
   };
 }

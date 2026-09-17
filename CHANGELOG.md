@@ -1,5 +1,13 @@
 # Changelog
 
+- Add `remote.html`, a phone / second-screen companion for the local voice
+  assistant (`AI_PROVIDER=ollama`). It connects to a new
+  `/api/voice/remote` hub that mirrors the globe session's transcript, tool
+  calls and replies as text and forwards typed commands, quick-action chips,
+  interrupts and (on HTTPS/localhost) VAD-cut WAV utterances into the active
+  session. Audio stays on the globe machine. Opening it from a phone needs
+  `HOST=0.0.0.0`; see `docs/REMOTE.md` for the LAN exposure caveat.
+
 - Add a fully local voice path behind `AI_PROVIDER=ollama`: browser Silero VAD
   decides utterance boundaries hands-free, one pre-warmed Python worker runs
   faster-whisper (CUDA when available) and Piper, and Ollama handles reasoning
