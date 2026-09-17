@@ -1,3 +1,5 @@
+import * as peers from './peers.js';
+
 /**
  * Registry of local-voice tool packs. Each pack exports `schemas` (tool
  * definitions in the same shape as localToolSchemas.js) and
@@ -26,6 +28,7 @@ export const LOCAL_TOOL_PACKS = Object.freeze([speaker]);
 import * as director from './director.js';
 
 export const LOCAL_TOOL_PACKS = Object.freeze([director]);
+export const LOCAL_TOOL_PACKS = Object.freeze([peers]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);

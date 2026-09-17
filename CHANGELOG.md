@@ -51,6 +51,14 @@
   through the Director's validated document import, plays it and speaks a
   narration line at each shot. `stop_tour` stops it; `save_tour` keeps it as
   a named scene and downloads a `.gevbundle.json`. See docs/AUTO-DIRECTOR.md.
+- Add federated globes for the local voice assistant: set `GEV_PEERS` to the
+  companion-hub URLs of other instances (`ws://host:port/api/voice/remote`)
+  and `GEV_PEER_NAME` to this globe's name, and spoken alerts are replayed on
+  every peer as "From <peer>: ..." while `share_place` sends a saved place
+  that lands in the peer's memory as `<name> (from <peer>)`. New
+  `/api/voice/peers` route, `peers_list` / `share_place` / `share_alerts`
+  voice tools, origin tagging against forwarding loops. Peers are unauthenticated
+  and must be trusted LAN hosts; see `docs/FEDERATION.md`.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and

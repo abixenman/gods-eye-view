@@ -1,3 +1,5 @@
+import { install as installPeers } from './peers.js';
+
 /**
  * Registry of HTTP routes that local-voice tool packs need on the server
  * (vision batches, radio listening, peer federation, ...). Each entry is a
@@ -16,6 +18,7 @@ export const FEATURE_ROUTES = Object.freeze([installVisionBatch]);
 import { install as installSpeaker } from './speaker.js';
 
 export const FEATURE_ROUTES = Object.freeze([installSpeaker]);
+export const FEATURE_ROUTES = Object.freeze([installPeers]);
 
 export function installFeatureRoutes(middlewares, server) {
   for (const install of FEATURE_ROUTES) install(middlewares, server);
