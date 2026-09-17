@@ -18,6 +18,7 @@ import { RadioControls } from './radio.js';
 import { LocationNavigation } from './locationNavigation.js';
 import { bindClearLayersControl } from './layers.js';
 import { bindCameraOrientationControls } from './cameraOrientationControls.js';
+import { bindKeyboardFlight } from './keyboardFlight.js';
 import { createMapSourceControls } from './mapSource.js';
 import { STYLES } from './effects.js';
 
@@ -323,6 +324,19 @@ export class StyleManager extends ShellFacade {
     this.hud = new IntelHUD(viewer, {
       placeSearch,
       summaryService: requestServices?.summary,
+      // The local model is shared with voice; keep HUD summaries rare and
+      // never let one queue ahead of a live voice turn.
+      summaryPolicy:
+        import.meta.env?.GEV_AI_PROVIDER === 'ollama'
+          ? {
+              minIntervalMs: 60_000,
+              timeoutMs: 30_000,
+              canRequest: () =>
+                !['connecting', 'listening', 'executing'].includes(
+                  document.getElementById('gev-voice-control')?.dataset?.status,
+                ),
+            }
+          : {},
     });
     this._recording.hud = this.hud;
     this._cockpitCoordinator = new CockpitCoordinator({
@@ -540,6 +554,7 @@ export class StyleManager extends ShellFacade {
     this._initLocationBar();
     this._initShareButton();
     this._initCameraOrientationControls();
+    this._initKeyboardFlight();
     this._initClearSelectedLayersButton();
     this._initHUDToggle();
     this._initModels3dToggle();
@@ -1346,6 +1361,18 @@ export class StyleManager extends ShellFacade {
     );
   }
 
+  /** WASD/QE keyboard flight; idle while the cockpit drives the camera. */
+  _initKeyboardFlight() {
+    this._keyboardFlight?.destroy();
+    this._keyboardFlight = bindKeyboardFlight({
+      viewer: this.viewer,
+      documentRef: document,
+      searchInput: this._locationSearch,
+      isEnabled: () => !this.cockpitView?.active,
+      onMoveStart: () => this._cameraOrientationControls?.cancel?.(),
+    });
+  }
+
   /** Wire Google Maps-style tilt and north-up camera actions. */
   _initCameraOrientationControls() {
     this._cameraOrientationControls?.destroy();
@@ -1468,6 +1495,7 @@ export class StyleManager extends ShellFacade {
 
     this._displayBindings.destroy();
     this._mapSourceControls?.destroy();
+    this._keyboardFlight?.destroy();
     this._cameraOrientationControls?.destroy();
     this._clearLayersControl?.destroy();
     this._cctvControls?.destroy();

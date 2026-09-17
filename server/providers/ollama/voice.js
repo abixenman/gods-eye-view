@@ -1,242 +1,485 @@
 import { WebSocketServer } from 'ws';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { appendFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { appendFileSync, mkdirSync } from 'node:fs';
-import { ollamaBaseUrl } from './hud-summary.js';
 import { GEV_REALTIME_TOOLS } from '../openai/tools.js';
 import { realtimeInstructions } from '../openai/instructions.js';
+import { sharedAudioWorker } from './worker.js';
+import { streamChat } from './chat.js';
+import { createSentenceSplitter } from './sentences.js';
+import { trimHistory } from './history.js';
+import { deterministicFlyTo, flyToLabel } from './fastPath.js';
+
+/**
+ * Local voice WebSocket: one connection per mic session. The browser sends
+ * one 16 kHz WAV utterance per binary frame followed by {type:'audio_end'};
+ * the server answers with transcript, tool_call (awaiting tool_result),
+ * streamed audio_chunk frames, text and audio_end. Every turn runs the full
+ * tool set through Ollama except a bare "fly to <preset city>", which is
+ * answered deterministically without a model round trip.
+ */
+export const MAX_TOOL_ROUNDS = 4;
+export const TOOL_RESULT_TIMEOUT_MS = 10_000;
+const MAX_UTTERANCE_BYTES = 2 * 1024 * 1024;
 
 const tools = GEV_REALTIME_TOOLS.map(({ name, description, parameters }) => ({
   type: 'function',
   function: { name, description, parameters },
 }));
-const flyToTool = tools.find(
-  (tool) => tool.function.name === 'fly_to_location',
-);
+const locationIds =
+  GEV_REALTIME_TOOLS.find((tool) => tool.name === 'fly_to_location')?.parameters
+    ?.properties?.locationId?.enum || [];
 
-// Small models are much more reliable when an unambiguous destination request
-// is sent with the destination schema in scope. The model still emits the
-// structured tool call and supplies/validates its arguments; this only avoids
-// confusing fly_to_location with the similarly worded camera-nudge tools.
-const DESTINATION_WORDS =
-  /\b(?:va|vas|allez|go|fly|emm[eè]ne(?:-moi)?|montre(?:-moi)?)\b[\s\S]{0,32}\b(?:a|à|au|aux|vers|to)\b/i;
-
+let logChain = Promise.resolve();
 function logLocalVoice(event, payload = {}) {
-  try {
-    const dir = join(process.cwd(), '.gev-logs');
-    mkdirSync(dir, { recursive: true });
-    appendFileSync(
-      join(dir, 'local-voice.jsonl'),
-      `${JSON.stringify({ loggedAt: new Date().toISOString(), event, ...payload })}\n`,
+  const dir = join(process.cwd(), '.gev-logs');
+  const line = `${JSON.stringify({ loggedAt: new Date().toISOString(), event, ...payload })}\n`;
+  logChain = logChain
+    .then(() => mkdir(dir, { recursive: true }))
+    .then(() => appendFile(join(dir, 'local-voice.jsonl'), line))
+    .catch(() => {});
+}
+
+function voiceModel() {
+  return process.env.OLLAMA_VOICE_MODEL || 'qwen3:8b';
+}
+
+/**
+ * Load the voice model with the full prompt once at server start so the first
+ * spoken command does not pay model load plus a 12k-token prompt evaluation.
+ */
+let warmPromise = null;
+export function warmVoiceModel({ chat = streamChat } = {}) {
+  if (warmPromise) return warmPromise;
+  const started = Date.now();
+  warmPromise = chat({
+    model: voiceModel(),
+    messages: [
+      { role: 'system', content: realtimeInstructions() },
+      { role: 'user', content: 'Say ready.' },
+    ],
+    tools,
+    options: { num_predict: 4 },
+  })
+    .then((reply) =>
+      logLocalVoice('model.warm', {
+        model: voiceModel(),
+        ms: Date.now() - started,
+        promptEvalCount: reply.promptEvalCount,
+      }),
+    )
+    .catch((error) =>
+      logLocalVoice('model.warm_failed', {
+        model: voiceModel(),
+        error: error?.message,
+      }),
     );
-  } catch {
-    /* diagnostics must never break voice */
+  return warmPromise;
+}
+
+/** Run one conversational turn for a session; resolves when speech is queued. */
+export async function runTurn(session, text, deps) {
+  const { send, worker, chat = streamChat, log = () => {} } = deps;
+  const turnId = randomUUID();
+  const turnAbort = new AbortController();
+  session.turnAbort = turnAbort;
+  const onClose = () => turnAbort.abort();
+  session.closeSignal.addEventListener('abort', onClose, { once: true });
+  const speech = createSpeechQueue({
+    session,
+    turnId,
+    worker,
+    send,
+    signal: turnAbort.signal,
+    log,
+  });
+  session.messages.push({ role: 'user', content: String(text).slice(0, 4000) });
+  let content = '';
+  let rounds = 0;
+  let calls = null;
+  const fast = deterministicFlyTo(text, { locationIds });
+  if (fast) {
+    log('turn.fast_path', { turnId, text, call: fast });
+    calls = [{ function: fast }];
+  }
+  try {
+    for (;;) {
+      if (turnAbort.signal.aborted) return;
+      if (fast && rounds === 1 && !calls) {
+        // The deterministic command already ran; confirm it without a model
+        // round trip. The tool result carries the resolved place label.
+        const lastTool = session.messages.at(-1);
+        let label = flyToLabel(fast.arguments.locationId);
+        try {
+          label = JSON.parse(lastTool?.content || '{}').label || label;
+        } catch {
+          /* keep the id */
+        }
+        content = `Flying to ${label}.`;
+        speech.enqueue(content);
+        break;
+      }
+      if (!calls) {
+        const splitter = createSentenceSplitter();
+        send({ type: 'thinking', turnId });
+        const reply = await chat({
+          model: voiceModel(),
+          messages: trimHistory(session.messages),
+          tools,
+          signal: turnAbort.signal,
+          onToken: (delta) => {
+            content += delta;
+            for (const sentence of splitter.push(delta))
+              speech.enqueue(sentence);
+          },
+        });
+        log('turn.model', {
+          turnId,
+          promptEvalCount: reply.promptEvalCount,
+          evalCount: reply.evalCount,
+          totalDurationMs: reply.totalDurationMs,
+          toolCalls: reply.toolCalls.map((call) => call.function?.name),
+        });
+        if (reply.toolCalls.length) {
+          // Text emitted before a tool call is pre-amble; do not narrate it.
+          speech.discardUnspoken();
+          content = '';
+          calls = reply.toolCalls;
+        } else {
+          for (const sentence of splitter.flush()) speech.enqueue(sentence);
+          break;
+        }
+      }
+      if (++rounds > MAX_TOOL_ROUNDS) {
+        content = 'Stopped after too many tool calls.';
+        speech.enqueue(content);
+        send({
+          type: 'error',
+          error: 'Tool loop limit reached',
+          terminal: false,
+        });
+        break;
+      }
+      for (const call of calls) {
+        const name = call.function?.name;
+        const args = call.function?.arguments || {};
+        const callId = randomUUID();
+        log('tool_call', { turnId, callId, name, arguments: args });
+        send({ type: 'tool_call', callId, turnId, name, arguments: args });
+        const result = await awaitToolResult(session, callId, turnAbort.signal);
+        log('tool_result', { turnId, callId, ok: result?.ok !== false });
+        session.messages.push(
+          { role: 'assistant', tool_calls: [call] },
+          {
+            role: 'tool',
+            name,
+            content: JSON.stringify(result ?? { ok: false }).slice(0, 4000),
+          },
+        );
+      }
+      calls = null;
+    }
+    if (turnAbort.signal.aborted) return;
+    session.messages.push({ role: 'assistant', content });
+    send({ type: 'text', turnId, text: content });
+    await speech.finish();
+  } catch (error) {
+    if (turnAbort.signal.aborted) return;
+    log('turn.error', { turnId, error: error?.message });
+    speech.discardUnspoken();
+    send({
+      type: 'error',
+      turnId,
+      error: error?.message || 'Local voice turn failed',
+      terminal: false,
+    });
+  } finally {
+    session.closeSignal.removeEventListener('abort', onClose);
+    if (session.turnAbort === turnAbort) session.turnAbort = null;
   }
 }
 
-function toolsForText(text) {
-  const value = String(text || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  if (flyToTool && DESTINATION_WORDS.test(value)) {
-    return [flyToTool];
-  }
-  return tools;
-}
-
-function chat(messages, model, scopedTools = tools) {
-  const payload = {
-    model,
-    stream: false,
-    options: {
-      num_ctx: Number(process.env.OLLAMA_NUM_CTX) || 16384,
-      num_predict: 256,
-    },
-    keep_alive: process.env.OLLAMA_KEEP_ALIVE || '30m',
-    messages,
-    tools: scopedTools,
-  };
-  if (model.startsWith('gpt-oss')) payload.think = true;
-  return fetch(`${ollamaBaseUrl()}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(120_000),
-  }).then(async (response) => {
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok)
-      throw new Error(data?.error || `Ollama chat failed (${response.status})`);
-    return data;
+function awaitToolResult(session, callId, signal) {
+  return new Promise((resolve) => {
+    const finish = (value) => {
+      clearTimeout(timer);
+      session.pending.delete(callId);
+      signal.removeEventListener('abort', onAbort);
+      resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish({ ok: false, error: 'Tool result timed out' }),
+      TOOL_RESULT_TIMEOUT_MS,
+    );
+    const onAbort = () => finish({ ok: false, error: 'Session closed' });
+    signal.addEventListener('abort', onAbort, { once: true });
+    session.pending.set(callId, finish);
   });
 }
 
-function attachVoiceWebSocket(
+/** Sentence FIFO -> Piper -> ordered audio_chunk frames for one turn. */
+export function createSpeechQueue({
+  session,
+  turnId,
+  worker,
+  send,
+  signal,
+  log,
+}) {
+  const enabled = worker?.health?.().tts === 'piper';
+  const queue = [];
+  let seq = 0;
+  let running = null;
+  let discarded = false;
+  async function drain() {
+    while (queue.length && !signal?.aborted) {
+      const sentence = queue.shift();
+      try {
+        await worker.synthesize(sentence, {
+          onChunk: (chunk) => {
+            if (signal?.aborted || discarded) return;
+            send({
+              type: 'audio_chunk',
+              turnId,
+              seq: seq++,
+              sampleRate: chunk.sampleRate,
+              pcm16: chunk.pcm16,
+              text: sentence,
+            });
+          },
+        });
+      } catch (error) {
+        log?.('tts.error', { turnId, error: error?.message });
+        return;
+      }
+    }
+  }
+  return {
+    enqueue(sentence) {
+      if (!enabled || !sentence || signal?.aborted) return;
+      discarded = false;
+      queue.push(sentence);
+      if (!running) running = drain().finally(() => (running = null));
+    },
+    discardUnspoken() {
+      queue.length = 0;
+      discarded = true;
+    },
+    async finish() {
+      if (running) await running;
+      if (!signal?.aborted) send({ type: 'audio_end', turnId, chunks: seq });
+      session.lastTurnChunks = seq;
+    },
+  };
+}
+
+function isWebm(bytes) {
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x1a &&
+    bytes[1] === 0x45 &&
+    bytes[2] === 0xdf &&
+    bytes[3] === 0xa3
+  );
+}
+
+function isWav(bytes) {
+  return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF';
+}
+
+export function attachVoiceWebSocket(
   server,
   path = process.env.VOICE_WS_PATH || '/api/voice/ws',
+  {
+    worker = sharedAudioWorker({ log: logLocalVoice }),
+    chat,
+    warmModel = true,
+  } = {},
 ) {
+  const httpServer = server?.httpServer;
+  // Preview servers and unit tests install the routes without an HTTP server;
+  // only a real server pays for a Whisper process and a model load.
+  if (!httpServer) return null;
+  worker
+    .ensureStarted()
+    .catch((error) =>
+      logLocalVoice('worker.start_failed', { error: error?.message }),
+    );
+  if (warmModel) void warmVoiceModel();
+  const marker = '__gevVoiceUpgrade';
+  if (httpServer[marker]) httpServer.off('upgrade', httpServer[marker]);
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: 2 * 1024 * 1024,
+    maxPayload: MAX_UTTERANCE_BYTES,
   });
-  server.httpServer?.on('upgrade', (request, socket, head) => {
+  const onUpgrade = (request, socket, head) => {
     const url = new URL(request.url, 'http://localhost');
     if (url.pathname !== path) return;
     wss.handleUpgrade(request, socket, head, (ws) =>
       wss.emit('connection', ws, request),
     );
-  });
-  wss.on('connection', (ws) => {
-    logLocalVoice('session.open');
-    const messages = [{ role: 'system', content: realtimeInstructions() }];
-    const pending = new Map();
-    const worker = spawn(
-      resolvePython(),
-      [join(process.cwd(), 'scripts/local_audio.py')],
-      { env: process.env },
-    );
-    logLocalVoice('worker.start');
-    worker.on('exit', (code, signal) =>
-      logLocalVoice('worker.exit', { code, signal }),
-    );
+  };
+  httpServer[marker] = onUpgrade;
+  httpServer.on('upgrade', onUpgrade);
+
+  wss.on('connection', async (ws) => {
+    const closeController = new AbortController();
+    const session = {
+      id: randomUUID(),
+      messages: [{ role: 'system', content: realtimeInstructions() }],
+      pending: new Map(),
+      turnAbort: null,
+      turns: Promise.resolve(),
+      closeSignal: closeController.signal,
+    };
     let audio = Buffer.alloc(0);
-    let workerBuffer = '';
-    const send = (payload) =>
-      ws.readyState === ws.OPEN && ws.send(JSON.stringify(payload));
-    send({ type: 'ready', protocol: 'ollama-local', tools: tools.length });
-    worker.stdout.on('data', (chunk) => {
-      workerBuffer += chunk.toString();
-      const lines = workerBuffer.split('\n');
-      workerBuffer = lines.pop() || '';
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line);
-          if (event.type === 'transcript') {
-            logLocalVoice('transcript', { text: event.text || '' });
-            send({ type: 'transcript', text: event.text || '' });
-            if (event.text) processText(event.text);
-          } else if (event.type === 'audio' && event.audio)
-            ws.send(Buffer.from(event.audio, 'base64'));
-        } catch {
-          /* malformed worker output is ignored */
-        }
-      }
-    });
-    worker.on('error', (error) =>
+    const send = (payload) => {
+      if (ws.readyState !== ws.OPEN) return false;
+      ws.send(JSON.stringify(payload));
+      return true;
+    };
+    logLocalVoice('session.open', { sessionId: session.id });
+    let health;
+    try {
+      health = await worker.ensureStarted();
+    } catch (error) {
       send({
         type: 'error',
-        error: `Audio worker unavailable: ${error.message}`,
-      }),
-    );
-    const processText = async (text) => {
-      messages.push({
-        role: 'user',
-        content: String(text || '').slice(0, 8000),
+        error: `Audio worker unavailable: ${error?.message || error}`,
+        terminal: true,
       });
-      try {
-        const scopedTools = toolsForText(text);
-        let response = await chat(
-          messages,
-          process.env.OLLAMA_VOICE_MODEL || 'qwen2.5:7b',
-          scopedTools,
-        );
-        while (response?.message?.tool_calls?.length) {
-          for (const call of response.message.tool_calls) {
-            const callId = randomUUID();
-            logLocalVoice('tool_call', {
-              name: call.function?.name,
-              arguments: call.function?.arguments || {},
-            });
-            send({
-              type: 'tool_call',
-              callId,
-              name: call.function?.name,
-              arguments: call.function?.arguments || {},
-            });
-            const result = await new Promise((resolve) =>
-              pending.set(callId, resolve),
-            );
-            messages.push({ role: 'assistant', tool_calls: [call] });
-            messages.push({
-              role: 'tool',
-              content: JSON.stringify(result),
-              name: call.function?.name,
-            });
-          }
-          response = await chat(
-            messages,
-            process.env.OLLAMA_VOICE_MODEL || 'qwen2.5:7b',
-            scopedTools,
-          );
-        }
-        const content = response?.message?.content || '';
-        messages.push({ role: 'assistant', content });
-        send({ type: 'text', text: content });
-        worker.stdin.write(`${JSON.stringify({ tts: content })}\n`);
-      } catch (error) {
+      ws.close(1011, 'audio worker unavailable');
+      return;
+    }
+    send({
+      type: 'ready',
+      protocol: 'ollama-local',
+      tools: tools.length,
+      model: voiceModel(),
+      ...health,
+    });
+
+    const enqueueTurn = (run) => {
+      session.turns = session.turns.then(run).catch(() => {});
+      return session.turns;
+    };
+
+    const handleUtterance = async (bytes) => {
+      if (isWebm(bytes)) {
         send({
           type: 'error',
-          error: error?.message || 'Local voice unavailable',
+          error: 'Send 16 kHz WAV utterances (WebM is no longer accepted)',
+          terminal: false,
         });
+        return;
       }
-    };
-    ws.on('message', async (raw, isBinary) => {
-      if (isBinary) {
-        audio = Buffer.concat([audio, raw]);
-        logLocalVoice('audio.chunk', {
-          bytes: raw.length,
-          totalBytes: audio.length,
+      if (!isWav(bytes)) {
+        send({
+          type: 'error',
+          error: 'Unrecognized audio frame',
+          terminal: false,
         });
+        return;
+      }
+      let transcript;
+      try {
+        transcript = await worker.transcribe(bytes, {
+          language: process.env.WHISPER_LANGUAGE,
+        });
+      } catch (error) {
+        logLocalVoice('transcribe.error', { error: error?.message });
+        send({
+          type: 'error',
+          error: `Transcription failed: ${error?.message || error}`,
+          terminal: !worker.running,
+        });
+        return;
+      }
+      logLocalVoice('transcript', {
+        sessionId: session.id,
+        text: transcript.text,
+        sttMs: transcript.sttMs,
+        durationMs: transcript.durationMs,
+        device: health?.device,
+      });
+      send({
+        type: 'transcript',
+        text: transcript.text,
+        noSpeech: Boolean(transcript.noSpeech),
+        durationMs: transcript.durationMs,
+        sttMs: transcript.sttMs,
+      });
+      if (!transcript.text) return;
+      await runTurn(session, transcript.text, {
+        send,
+        worker,
+        chat,
+        log: (event, payload) =>
+          logLocalVoice(event, { sessionId: session.id, ...payload }),
+      });
+    };
+
+    ws.on('message', (raw, isBinary) => {
+      if (isBinary) {
+        if (audio.length + raw.length > MAX_UTTERANCE_BYTES) {
+          audio = Buffer.alloc(0);
+          send({ type: 'error', error: 'Utterance too long', terminal: false });
+          return;
+        }
+        audio = Buffer.concat([audio, raw]);
         return;
       }
       let event;
       try {
         event = JSON.parse(raw.toString());
       } catch {
-        return send({ type: 'error', error: 'Invalid JSON' });
+        send({ type: 'error', error: 'Invalid JSON', terminal: false });
+        return;
       }
       if (event.type === 'tool_result') {
-        logLocalVoice('tool_result', {
-          callId: event.callId,
-          ok: event.result?.ok !== false,
-        });
-        const resolve = pending.get(event.callId);
-        pending.delete(event.callId);
-        resolve?.(event.result);
+        session.pending.get(event.callId)?.(event.result);
         return;
       }
       if (event.type === 'audio_end') {
-        logLocalVoice('audio.end', { bytes: audio.length });
-        if (audio.length)
-          worker.stdin.write(
-            `${JSON.stringify({ audio: audio.toString('base64') })}\n`,
-          );
+        const bytes = audio;
         audio = Buffer.alloc(0);
+        if (bytes.length) void enqueueTurn(() => handleUtterance(bytes));
         return;
       }
-      if (event.type !== 'text') return;
-      processText(event.text);
+      if (event.type === 'text') {
+        const text = String(event.text || '').trim();
+        if (text)
+          void enqueueTurn(() =>
+            runTurn(session, text, {
+              send,
+              worker,
+              chat,
+              log: (name, payload) =>
+                logLocalVoice(name, { sessionId: session.id, ...payload }),
+            }),
+          );
+        return;
+      }
+      if (event.type === 'interrupt') {
+        session.turnAbort?.abort();
+        return;
+      }
+      // map_event and unknown frames are accepted and ignored.
     });
     ws.on('close', (code, reason) => {
-      logLocalVoice('session.close', { code, reason: String(reason || '') });
-      try {
-        worker.kill();
-      } catch {
-        /* no-op */
-      }
+      logLocalVoice('session.close', {
+        sessionId: session.id,
+        code,
+        reason: String(reason || ''),
+      });
+      closeController.abort();
+      session.turnAbort?.abort();
+      for (const finish of session.pending.values())
+        finish({ ok: false, error: 'Session closed' });
+      session.pending.clear();
     });
   });
   return wss;
 }
 
-function resolvePython() {
-  if (process.env.PYTHON) return process.env.PYTHON;
-  return join(
-    process.cwd(),
-    process.platform === 'win32'
-      ? '.venv-local/Scripts/python.exe'
-      : '.venv-local/bin/python',
-  );
-}
-
-export { attachVoiceWebSocket, tools as OLLAMA_TOOLS };
+export { tools as OLLAMA_TOOLS };

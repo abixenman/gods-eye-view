@@ -1,10 +1,23 @@
 # Changelog
 
 - Add a fully local voice path behind `AI_PROVIDER=ollama`: browser Silero VAD
-  decides utterance boundaries hands-free, a Python worker runs faster-whisper
-  and Piper, and Ollama handles reasoning and the same 28 tool schemas through a
-  local WebSocket. The adapter plugs into the common voice session beside the
-  OpenAI Realtime adapter; no key leaves the machine and the cost meter hides.
+  decides utterance boundaries hands-free, one pre-warmed Python worker runs
+  faster-whisper (CUDA when available) and Piper, and Ollama handles reasoning
+  and the same 28 tool schemas through a local WebSocket with streamed,
+  sentence-level speech. The adapter plugs into the common voice session beside
+  the OpenAI Realtime adapter; no key leaves the machine and the cost meter
+  hides. A bare "fly to <preset city>" answers without a model round trip.
+  Ships `npm run qa:local-voice` (fixture-driven end-to-end check),
+  `npm run qa:tool-calls` (per-model tool accuracy and latency) and
+  `scripts/bench_stt.py`.
+
+- The mic panel shows the last heard command and the reply on a transcript
+  line, and HUD summaries honor a `summaryPolicy` minimum interval, timeout and
+  request gate; the local HUD route cancels its upstream call when the browser
+  gives up.
+
+- WASD moves the camera and Q/E turn it, height-scaled and frame-timed, idle in
+  cockpit mode and in text fields. Ported from faris315mfaf-ai/gods-eye-view.
 
 - Distinguish PARTIAL vessel snapshots from STALE data in the layer panel, with
   accepted-record counts and unchanged retention, freshness and outage safeguards.

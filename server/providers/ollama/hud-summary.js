@@ -1,5 +1,10 @@
 import { readRequestBody } from '../common/request.js';
 import { toFiveWordHudSummary } from '../openai/hud-summary.js';
+import {
+  ollamaBaseUrl,
+  ollamaRequestDefaults,
+  modelSupportsThinking,
+} from './chat.js';
 
 const SYSTEM_PROMPT = [
   "Write one concise intelligence-HUD summary for God's Eye View.",
@@ -9,40 +14,58 @@ const SYSTEM_PROMPT = [
   'Output exactly five words with no title, punctuation, markdown, or introductory phrase.',
 ].join(' ');
 
-function ollamaBaseUrl() {
-  const value = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-  const url = new URL(value);
-  if (
-    !['http:', 'https:'].includes(url.protocol) ||
-    url.username ||
-    url.password
-  )
-    throw new Error('Invalid Ollama URL');
-  return url.href.replace(/\/$/, '');
+function hudModel() {
+  return (
+    process.env.OLLAMA_HUD_MODEL || process.env.OLLAMA_VOICE_MODEL || 'qwen3:8b'
+  );
 }
 
-export async function handleHudSummary(req, res) {
+/**
+ * Five-word HUD summary through the local model. The upstream request is
+ * aborted when the browser gives up, so an abandoned summary never queues
+ * ahead of a voice turn on the shared GPU.
+ */
+export async function handleHudSummary(req, res, { fetchImpl = fetch } = {}) {
   if (req.method !== 'POST') {
     res.statusCode = 405;
     res.setHeader('Content-Type', 'application/json');
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
   }
+  const abort = new AbortController();
+  // IncomingMessage 'close' fires once the body is consumed on modern Node, so
+  // watch the response: it closes early only when the client went away.
+  const onClose = () => {
+    if (!res.writableEnded) abort.abort();
+  };
+  res.on?.('close', onClose);
+  const timer = setTimeout(() => abort.abort(), 30_000);
   try {
     const context = JSON.parse((await readRequestBody(req, 64 * 1024)) || '{}');
-    const response = await fetch(`${ollamaBaseUrl()}/api/chat`, {
+    const model = hudModel();
+    const baseUrl = ollamaBaseUrl();
+    const thinking = await modelSupportsThinking(model, { fetchImpl, baseUrl });
+    const response = await fetchImpl(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.OLLAMA_HUD_MODEL || 'qwen2.5:3b',
+        model,
         stream: false,
-        options: { num_predict: 32 },
+        keep_alive: ollamaRequestDefaults().keep_alive,
+        // Same num_ctx as voice turns: a different context size makes Ollama
+        // reload the model, which cost a warm voice turn ~10 s.
+        options: {
+          num_predict: 32,
+          num_ctx: ollamaRequestDefaults().num_ctx,
+          temperature: 0.2,
+        },
+        ...(thinking ? { think: false } : {}),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: JSON.stringify(context) },
         ],
       }),
-      signal: AbortSignal.timeout(30_000),
+      signal: abort.signal,
     });
     const data = await response.json().catch(() => ({}));
     const summary = toFiveWordHudSummary(data?.message?.content);
@@ -56,13 +79,19 @@ export async function handleHudSummary(req, res) {
       }),
     );
   } catch (error) {
-    res.statusCode = 502;
+    if (res.writableEnded) return;
+    res.statusCode = abort.signal.aborted ? 499 : 502;
     res.setHeader('Content-Type', 'application/json');
     res.end(
       JSON.stringify({
-        error: error?.message || 'Ollama HUD summary request failed',
+        error: abort.signal.aborted
+          ? 'HUD summary cancelled'
+          : error?.message || 'Ollama HUD summary request failed',
       }),
     );
+  } finally {
+    clearTimeout(timer);
+    res.off?.('close', onClose);
   }
 }
 

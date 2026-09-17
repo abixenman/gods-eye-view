@@ -65,6 +65,8 @@ export function statusForFrame(frame) {
         return { state: 'listening', detail: LOCAL_VOICE_STATUS.nothingHeard };
       return { state: 'executing', detail: `HEARD: ${compact(text, 60)}` };
     }
+    case 'thinking':
+      return { state: 'executing', detail: LOCAL_VOICE_STATUS.thinking };
     case 'tool_call':
       return { state: 'executing', detail: LOCAL_VOICE_STATUS.running };
     case 'text':

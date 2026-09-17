@@ -144,7 +144,8 @@ export function createVadCapture({
         onSpeechEnd: (audio) => {
           if (paused || destroyed || !audio?.length) return;
           onSpeechEnd?.({ misfire: false });
-          onUtterance?.(utils.encodeWAV(audio), {
+          // 16-bit PCM (format 1); the library default is 32-bit float.
+          onUtterance?.(utils.encodeWAV(audio, 1, 16000, 1, 16), {
             format: 'wav',
             sampleRate: 16000,
             durationMs: Math.round(audio.length / 16),
