@@ -45,6 +45,18 @@ export function createBrowserViteConfig({
         ? { 'import.meta.env.GEV_AI_PROVIDER': JSON.stringify(aiProvider) }
         : {}),
     },
+    // Browser-only voice dependencies are loaded lazily (dynamic import) on
+    // the local provider path. Pre-bundling them up front stops Vite from
+    // discovering them mid-session and re-optimizing, which briefly serves
+    // 504 "Outdated Optimize Dep" for every open page.
+    optimizeDeps: {
+      include: [
+        '@ricky0123/vad-web',
+        'onnxruntime-web/wasm',
+        '@picovoice/porcupine-web',
+        '@picovoice/web-voice-processor',
+      ],
+    },
     build: {
       chunkSizeWarningLimit: 1500,
       ...(inputs ? { rollupOptions: { input: { ...inputs } } } : {}),
