@@ -46,7 +46,7 @@ export const schemas = Object.freeze([
   {
     name: 'patrol_start',
     description:
-      'Start a standing mission that re-checks an area on a schedule and speaks a briefing with what changed (arrivals, departures, stopped ships, sharp climbs or descents, anomalies): "watch the Gulf for ships and brief me every 20 minutes", "patrol this view for military aircraft every 10 minutes".',
+      'Start a standing mission that re-checks an area on a schedule and speaks a briefing with what changed (arrivals, departures, stopped ships, sharp climbs or descents, anomalies): "watch the Gulf for ships and brief me every 20 minutes", "patrol this view for military aircraft every 10 minutes". Call it ONCE per request; the first briefing is spoken automatically, so do not call patrol_brief or patrol_start again. Then just confirm in one sentence.',
     parameters: {
       type: 'object',
       additionalProperties: false,
@@ -70,7 +70,7 @@ export const schemas = Object.freeze([
   {
     name: 'patrol_brief',
     description:
-      'Run a patrol now and speak its briefing ("brief me on the Gulf patrol").',
+      'Run an EXISTING patrol now and speak its briefing ("brief me on the Gulf patrol"). Not needed right after patrol_start.',
     parameters: {
       type: 'object',
       additionalProperties: false,

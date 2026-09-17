@@ -32,6 +32,11 @@ export function createBrowserViteConfig({
       fs: {
         deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/ENVIRONMENT'],
       },
+      // Agent worktrees and logs live inside the checkout; watching them
+      // floods the dev server with reloads (and can take it down).
+      watch: {
+        ignored: ['**/.claude/**', '**/.gev-logs/**', '**/.gev-cache/**'],
+      },
       // These headers protect the document containing Provider Settings.
       headers: {
         'X-Frame-Options': 'DENY',

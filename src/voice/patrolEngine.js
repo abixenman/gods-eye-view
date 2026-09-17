@@ -50,7 +50,9 @@ export function diffPasses(previous, current, layerId) {
 /** One spoken paragraph for a pass. */
 export function composeBriefing(patrol, passes, { anomalies = [] } = {}) {
   const parts = [`Patrol ${patrol.name}:`];
-  for (const pass of passes) {
+  const nonEmpty = passes.filter((p) => p.count > 0);
+  const shown = nonEmpty.length ? nonEmpty : passes.slice(0, 1);
+  for (const pass of shown) {
     const { layerId, count, diff, first } = pass;
     const noun = nounFor(layerId, count);
     let line = `${count} ${noun} in range`;
@@ -241,6 +243,18 @@ export function createPatrolEngine({
       intervalMinutes = 20,
       briefNow = true,
     }) {
+      const existing = this.find(name);
+      if (existing) {
+        const again = run(existing, { speakIt: false });
+        return {
+          id: existing.id,
+          name: existing.name,
+          layers: existing.layers,
+          intervalMinutes: existing.intervalMinutes,
+          alreadyRunning: true,
+          firstBriefing: again.text,
+        };
+      }
       if (patrols.length >= MAX_PATROLS)
         throw new Error(`At most ${MAX_PATROLS} patrols`);
       const camera = getCamera();
