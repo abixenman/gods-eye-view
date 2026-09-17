@@ -192,6 +192,26 @@ function lerpFinite(a, b, f) {
  * @param {number} [options.maxRecords] Records requested per poll.
  * @param {() => number} [options.now] Wall clock in ms.
  */
+
+/** Great-circle destination from a point along a bearing (degrees, meters). */
+export function destinationPoint(lat, lon, bearingDeg, distanceM) {
+  const R = 6371000;
+  const d = distanceM / R;
+  const brng = (bearingDeg * Math.PI) / 180;
+  const phi1 = (lat * Math.PI) / 180;
+  const lam1 = (lon * Math.PI) / 180;
+  const sinPhi2 =
+    Math.sin(phi1) * Math.cos(d) +
+    Math.cos(phi1) * Math.sin(d) * Math.cos(brng);
+  const phi2 = Math.asin(Math.min(1, Math.max(-1, sinPhi2)));
+  const y = Math.sin(brng) * Math.sin(d) * Math.cos(phi1);
+  const x = Math.cos(d) - Math.sin(phi1) * sinPhi2;
+  const lam2 = lam1 + Math.atan2(y, x);
+  let outLon = (lam2 * 180) / Math.PI;
+  outLon = ((outLon + 540) % 360) - 180;
+  return { lat: (phi2 * 180) / Math.PI, lon: outLon };
+}
+
 export function createPositionHistory({
   dataManager = null,
   layers = DEFAULT_HISTORY_LAYERS,
@@ -380,6 +400,63 @@ export function createPositionHistory({
     return out;
   }
 
+  /**
+   * Dead-reckoned positions for a time after the newest fix. Each recently
+   * active track (last fix within maxStaleMs of newestT) is advanced along its
+   * last heading at its last speed; confidence decays with lead time and with
+   * how stale the last fix already was.
+   */
+  function forecastAt(
+    displayTimeMs,
+    out = [],
+    { maxStaleMs = 10 * 60_000, maxAheadMs = 15 * 60_000 } = {},
+  ) {
+    out.length = 0;
+    if (!Number.isFinite(displayTimeMs)) return out;
+    const t = displayTimeMs;
+    const { newestT } = range();
+    if (!Number.isFinite(newestT)) return out;
+    for (const tracks of byLayer.values())
+      for (const track of tracks.values()) {
+        const n = track.count;
+        if (!n) continue;
+        const a = slot(track, n - 1);
+        const lastT = track.t[a];
+        if (newestT - lastT > maxStaleMs) continue;
+        const aheadMs = t - lastT;
+        if (aheadMs <= 0 || aheadMs > maxAheadMs + maxStaleMs) continue;
+        const speed = track.spd[a];
+        const heading = track.hdg[a];
+        let lat = track.lat[a];
+        let lon = track.lon[a];
+        if (Number.isFinite(speed) && speed > 0.2 && Number.isFinite(heading)) {
+          const distanceM = speed * (aheadMs / 1000);
+          const moved = destinationPoint(lat, lon, heading, distanceM);
+          lat = moved.lat;
+          lon = moved.lon;
+        }
+        const confidence = Math.max(
+          0.05,
+          Math.exp(-aheadMs / (8 * 60_000)) *
+            (Number.isFinite(speed) ? 1 : 0.6),
+        );
+        out.push({
+          layerId: track.layerId,
+          id: track.id,
+          label: track.label,
+          lat,
+          lon,
+          heightM: track.h[a],
+          headingDeg: heading,
+          speed,
+          ageMs: aheadMs,
+          predicted: true,
+          confidence,
+        });
+      }
+    return out;
+  }
+
   function trackOf(layerId, id) {
     const track = byLayer.get(layerId)?.get(String(id));
     if (!track) return [];
@@ -446,6 +523,7 @@ export function createPositionHistory({
     recordSnapshot,
     snapshotLayer,
     entitiesAt,
+    forecastAt,
     range,
     trackOf,
     trailPositions,

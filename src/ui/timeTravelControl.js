@@ -3,13 +3,14 @@ import { REWIND_RATES, DEFAULT_REWIND_MS } from '../history/timeTravel.js';
 /** Format a negative offset as −MM:SS (hours only when needed). */
 export function formatOffset(offsetMs) {
   if (!Number.isFinite(offsetMs)) return 'LIVE';
-  const total = Math.max(0, Math.round(-offsetMs / 1000));
+  const total = Math.round(Math.abs(offsetMs) / 1000);
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
   const mm = String(m).padStart(2, '0');
   const ss = String(s).padStart(2, '0');
-  return h ? `LIVE −${h}:${mm}:${ss}` : `LIVE −${mm}:${ss}`;
+  const sign = offsetMs > 0 ? '+' : '−';
+  return h ? `LIVE ${sign}${h}:${mm}:${ss}` : `LIVE ${sign}${mm}:${ss}`;
 }
 /** Local wall-clock HH:MM:SS for an absolute timestamp. */
 export function formatClock(timestampMs) {

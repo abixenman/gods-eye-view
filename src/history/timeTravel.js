@@ -63,7 +63,14 @@ export function createTimeTravel({
     Cesium.Material.fromType('Color', { color: layerColor(layerId, 0.55) }),
   maxTrails = 250,
 } = {}) {
-  const state = { mode: 'live', displayTimeMs: NaN, offsetMs: 0, rate: 1 };
+  const state = {
+    mode: 'live',
+    displayTimeMs: NaN,
+    offsetMs: 0,
+    rate: 1,
+    aheadMs: 0,
+  };
+  const MAX_FORECAST_MS = 15 * 60_000;
   const listeners = new Set();
   if (typeof onChange === 'function') listeners.add(onChange);
   let points = null;
@@ -89,7 +96,12 @@ export function createTimeTravel({
     return {
       mode: state.mode,
       displayTimeMs: state.displayTimeMs,
-      offsetMs: state.mode === 'rewind' ? state.displayTimeMs - wallNow() : 0,
+      offsetMs:
+        state.mode === 'rewind'
+          ? state.displayTimeMs - wallNow()
+          : state.mode === 'forecast'
+            ? state.aheadMs
+            : 0,
       rate: state.rate,
       oldestT,
       newestT,
@@ -122,7 +134,8 @@ export function createTimeTravel({
     }
   }
   function syncHold() {
-    const wanted = state.mode === 'rewind' && state.rate > 0;
+    const wanted =
+      (state.mode === 'rewind' && state.rate > 0) || state.mode === 'forecast';
     if (wanted && !holding) {
       holding = true;
       holdRender?.('time-travel');
@@ -214,13 +227,15 @@ export function createTimeTravel({
   }
 
   function renderOverlay({ force = false } = {}) {
-    if (state.mode !== 'rewind' || !points) return;
+    if ((state.mode !== 'rewind' && state.mode !== 'forecast') || !points)
+      return;
     const t = state.displayTimeMs;
     const revision = history.revision;
     if (!force && t === renderedTimeMs && revision === renderedRevision) return;
     renderedTimeMs = t;
     renderedRevision = revision;
-    history.entitiesAt(t, entities);
+    if (state.mode === 'forecast') history.forecastAt(t, entities);
+    else history.entitiesAt(t, entities);
     seen.clear();
     for (const entity of entities) {
       const key = `${entity.layerId}:${entity.id}`;
@@ -235,7 +250,10 @@ export function createTimeTravel({
       if (!point) {
         point = points.add({
           position,
-          color: layerColor(entity.layerId),
+          color: layerColor(
+            entity.layerId,
+            entity.predicted ? entity.confidence : 1,
+          ),
           outlineColor: new Cesium.Color(0, 0, 0, 0.65),
           outlineWidth: 1,
           pixelSize: POINT_PX,
@@ -248,7 +266,11 @@ export function createTimeTravel({
           },
         });
         pointById.set(key, point);
-      } else point.position = position;
+      } else {
+        point.position = position;
+        if (entity.predicted)
+          point.color = layerColor(entity.layerId, entity.confidence);
+      }
       seen.add(key);
     }
     for (const [key, point] of pointById) {
@@ -287,7 +309,14 @@ export function createTimeTravel({
 
   function frame(frameNowMs) {
     rafId = null;
-    if (destroyed || state.mode !== 'rewind') return;
+    if (destroyed || (state.mode !== 'rewind' && state.mode !== 'forecast'))
+      return;
+    if (state.mode === 'forecast') {
+      state.displayTimeMs = wallNow() + state.aheadMs;
+      renderOverlay();
+      rafId = raf(frame);
+      return;
+    }
     step(Number.isFinite(frameNowMs) ? frameNowMs : now());
     if (state.mode === 'rewind') rafId = raf(frame);
   }
@@ -334,6 +363,35 @@ export function createTimeTravel({
     return true;
   }
 
+  /** Show dead-reckoned positions aheadMs into the future, moving with the clock. */
+  function forecast(aheadMs = 5 * 60_000) {
+    if (destroyed) return false;
+    const ahead = Number(aheadMs);
+    if (!Number.isFinite(ahead) || ahead <= 0) return false;
+    const { newestT } = history.range();
+    if (!Number.isFinite(newestT)) return false;
+    if (state.mode === 'rewind') resumeLive('forecast');
+    if (state.mode !== 'forecast') {
+      state.mode = 'forecast';
+      ensurePrimitives();
+      setLiveSuppressed(true);
+      lastSuppressMs = now();
+      try {
+        onEnterRewind?.();
+      } catch (error) {
+        console.warn('[TimeTravel] enter hook failed:', error);
+      }
+      if (rafId == null) rafId = raf(frame);
+    }
+    state.aheadMs = Math.min(MAX_FORECAST_MS, ahead);
+    state.displayTimeMs = wallNow() + state.aheadMs;
+    state.rate = 1;
+    syncHold();
+    renderOverlay({ force: true });
+    notify('mode');
+    return true;
+  }
+
   function seekTo(timestampMs) {
     if (destroyed) return false;
     const target = clampToRange(Number(timestampMs));
@@ -360,8 +418,9 @@ export function createTimeTravel({
   }
 
   function resumeLive(reason = 'user') {
-    if (state.mode !== 'rewind') return false;
+    if (state.mode !== 'rewind' && state.mode !== 'forecast') return false;
     state.mode = 'live';
+    state.aheadMs = 0;
     state.displayTimeMs = NaN;
     state.rate = 1;
     if (rafId != null) {
@@ -400,6 +459,7 @@ export function createTimeTravel({
     rewind,
     seekTo,
     setRate,
+    forecast,
     resumeLive,
     state: snapshot,
     range: () => history.range(),

@@ -1,5 +1,15 @@
 # Changelog
 
+- The local assistant now keeps watch on its own: `patrol_start` runs a standing
+  mission on a schedule and speaks a briefing of arrivals, departures, stopped
+  ships and sharp climbs or descents; a rule-based anomaly engine flags stopped
+  vessels, rapid descents, orbiting aircraft, impossible position jumps and
+  vessels that went dark from the position history (`anomaly_list`); named
+  geofences count entries and exits per hour and can alert on entry
+  (`geofence_add`, drawn on the map); and dead-reckoned prediction shows where
+  contacts will be in N minutes (`predict_positions`, scrubber past LIVE) or
+  answers "who will be near X in 10 minutes" (`who_will_be_near`).
+
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and

@@ -1468,6 +1468,7 @@ export class StyleManager extends ShellFacade {
       seekTo: (timestampMs) => this._timeTravel?.seekTo(timestampMs) ?? false,
       setRate: (rate) => this._timeTravel?.setRate(rate) ?? 1,
       resumeLive: () => this._timeTravel?.resumeLive() ?? false,
+      forecast: (aheadMs) => this._timeTravel?.forecast?.(aheadMs) ?? false,
       state: () => this._timeTravel?.state() ?? { mode: 'live' },
       range: () =>
         this._positionHistory?.range() ?? {
