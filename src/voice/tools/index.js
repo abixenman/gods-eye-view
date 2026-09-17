@@ -11,6 +11,9 @@ import * as watchkeeping from './watchkeeping.js';
 import * as prediction from './prediction.js';
 
 export const LOCAL_TOOL_PACKS = Object.freeze([watchkeeping, prediction]);
+import * as incidents from './incidents.js';
+
+export const LOCAL_TOOL_PACKS = Object.freeze([incidents]);
 
 export function packSchemas() {
   return LOCAL_TOOL_PACKS.flatMap((pack) => pack.schemas || []);
