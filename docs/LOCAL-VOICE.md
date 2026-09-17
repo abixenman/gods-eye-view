@@ -46,6 +46,7 @@ adapter (`src/voice/localTools.js`):
 | "Tell me when a plane comes within 20 km of here" / "Alert me on quakes over magnitude 5" | `watch_add` | Standing alerts, persisted; spoken unprompted when a new record matches. |
 | "What alerts do I have?" / "Clear my alerts" | `watch_list`, `watch_clear` | |
 | "Rewind ten minutes" / "Back to live" | `rewind_time`, `resume_live` | Drives the time-travel replay (see docs/TIME-TRAVEL.md). |
+| "Make me a 60-second tour of the busiest airspace" / "Stop the tour" / "Save that tour as Texas rush" | `make_tour`, `stop_tour`, `save_tour` | Auto-Director: builds, plays and narrates a Director scene from live records (see docs/AUTO-DIRECTOR.md). |
 
 Fast paths: a bare "fly to <Austin, SF, NYC, Tokyo, London, Paris, Dubai, DC>"
 and "remember this place as X" skip the model entirely (about 300 ms).
