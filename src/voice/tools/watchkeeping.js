@@ -1,6 +1,7 @@
 import { createAnomalyEngine, ANOMALY_KINDS } from '../anomalyEngine.js';
 import { createPatrolEngine } from '../patrolEngine.js';
 import { createGeofenceEngine } from '../geofenceEngine.js';
+import { haversineKm } from '../watchEngine.js';
 
 /**
  * Tool pack: autonomous patrols, anomaly detection and geofences. The three
@@ -211,8 +212,9 @@ function ensureEngines(context, factories = {}) {
   };
   const anomalies = (factories.createAnomalyEngine || createAnomalyEngine)({
     dataManager,
+    isRelevant: (record) => nearCamera(record, getCamera()),
     onAnomaly: (record) => {
-      toast(`⚠ ${record.text}`);
+      if (record.nearby) toast(`⚠ ${record.text}`);
       if (record.spoken) context.speak?.(record.text);
     },
   });
@@ -335,6 +337,23 @@ export function createHandlers(context, factories = {}) {
       return { ok: true, removed: e.geofences.remove(name) };
     },
   };
+}
+
+/**
+ * An anomaly is worth interrupting for when it is within the camera's
+ * neighbourhood: 200 km when zoomed in, growing with altitude up to 1500 km.
+ * With no camera everything counts.
+ */
+export function nearCamera(record, camera) {
+  if (!camera || !Number.isFinite(camera.lat) || !Number.isFinite(camera.lon))
+    return true;
+  if (!Number.isFinite(record?.lat) || !Number.isFinite(record?.lon))
+    return false;
+  const altKm = Math.max(0, Number(camera.alt) || 0) / 1000;
+  const radiusKm = Math.min(1500, Math.max(200, altKm * 0.6));
+  return (
+    haversineKm(record.lat, record.lon, camera.lat, camera.lon) <= radiusKm
+  );
 }
 
 function centroid(fence) {

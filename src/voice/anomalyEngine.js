@@ -18,6 +18,12 @@ export const ANOMALY_KINDS = Object.freeze([
   'went_dark',
 ]);
 const COOLDOWN_MS = 15 * 60_000;
+// Poll cadence and source latency blur consecutive fix times; every rate is
+// computed over dt plus this slack so a 30 s poll cannot invent motion.
+const AIR_SLACK_S = 60;
+const SEA_SLACK_S = 120;
+const SPEAK_MIN_GAP_MS = 45_000;
+const SPEAK_BUDGET = { count: 6, perMs: 10 * 60_000 };
 const MAX_LEDGER = 200;
 const MAX_STORED = 60;
 
@@ -34,16 +40,18 @@ export function evaluateTrack(
   const last = fixes[fixes.length - 1];
   const isVessel = layerId === 'ais-live-vessels';
 
-  // Impossible jump between consecutive fixes.
-  const limitMps = isVessel ? 60 : 700;
+  // Impossible jump between consecutive fixes (implied speed over dt + slack).
+  const limitMps = isVessel ? 40 : layerId === 'military' ? 800 : 350;
+  const minKm = isVessel ? 5 : 20;
+  const slack = isVessel ? SEA_SLACK_S : AIR_SLACK_S;
   for (let i = 1; i < fixes.length; i++) {
     const a = fixes[i - 1];
     const b = fixes[i];
     const dt = (b.t - a.t) / 1000;
     if (dt <= 0 || dt > 180) continue;
     const km = haversineKm(a.lat, a.lon, b.lat, b.lon);
-    const mps = (km * 1000) / dt;
-    if (km > 5 && mps > limitMps) {
+    const mps = (km * 1000) / (dt + slack);
+    if (km > minKm && mps > limitMps) {
       out.push({
         kind: 'position_jump',
         severity: 'high',
@@ -88,19 +96,20 @@ export function evaluateTrack(
         });
     }
   } else {
-    // Rapid descent: > 900 m lost within 60 s while airborne.
+    // Rapid descent: more than 25 m/s (about 5000 ft/min) over the last
+    // interval, measured with timing slack, while clearly airborne.
     for (let i = fixes.length - 1; i > 0; i--) {
       const b = fixes[i];
       const a = fixes[i - 1];
       const dt = (b.t - a.t) / 1000;
-      if (dt <= 0 || dt > 90) break;
+      if (dt <= 0 || dt > 120) break;
       if (
         Number.isFinite(a.heightM) &&
         Number.isFinite(b.heightM) &&
-        b.heightM > 50
+        b.heightM > 300
       ) {
-        const rate = (b.heightM - a.heightM) / dt;
-        if (rate < -15) {
+        const rate = (b.heightM - a.heightM) / (dt + 20);
+        if (rate < -25) {
           out.push({
             kind: 'rapid_descent',
             severity: 'high',
@@ -154,11 +163,36 @@ export function createAnomalyEngine({
   storage = safeStorage(),
   now = () => Date.now(),
   maxEntities = 6000,
+  // Which anomalies deserve a voice/toast (near the camera); the rest only
+  // go to the ledger. Speech is also rate limited so a busy sky stays quiet.
+  isRelevant = () => true,
+  speakMinGapMs = SPEAK_MIN_GAP_MS,
+  speakBudget = SPEAK_BUDGET,
 } = {}) {
   let ledger = load();
   const lastFired = new Map(); // `${layer}:${id}:${kind}` -> t
   let unsubscribe = null;
   let spoken = readFlag(storage, 'gev:voice-anomalies-spoken', true);
+  let spokenTimes = [];
+
+  function relevant(record) {
+    try {
+      return isRelevant(record) !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  function maySpeak(record, t) {
+    if (!spoken || record.severity === 'low' || !record.nearby) return false;
+    spokenTimes = spokenTimes.filter((s) => t - s < speakBudget.perMs);
+    if (spokenTimes.length >= speakBudget.count) return false;
+    const lastSpoken = spokenTimes[spokenTimes.length - 1];
+    if (lastSpoken !== undefined && t - lastSpoken < speakMinGapMs)
+      return false;
+    spokenTimes.push(t);
+    return true;
+  }
 
   function load() {
     try {
@@ -204,8 +238,9 @@ export function createAnomalyEngine({
           entityId: entity.id,
           ...anomaly,
           text: describe(anomaly, entity),
-          spoken: spoken && anomaly.severity !== 'low',
         };
+        record.nearby = relevant(record);
+        record.spoken = maySpeak(record, t);
         ledger.unshift(record);
         found.push(record);
       }
@@ -234,8 +269,9 @@ export function createAnomalyEngine({
             entityId: entity.id,
             ...anomaly,
             text: describe(anomaly, entity),
-            spoken: spoken && anomaly.severity !== 'low',
           };
+          record.nearby = relevant(record);
+          record.spoken = maySpeak(record, t);
           ledger.unshift(record);
           found.push(record);
         }

@@ -68,7 +68,21 @@ export function fixFromRecord(layerId, record) {
     heightM: record.onGround === true ? 0 : finite(Number(record.altitudeM)),
     headingDeg: finite(Number(record.heading)),
     speed: finite(Number(record.speedMps)),
+    // Source-reported fix time when the layer knows it (null otherwise).
+    t: finite(Number(record.positionTimeMs)),
   };
+}
+
+/**
+ * Time to store for a fix: the source's own timestamp when it is plausible
+ * (not in the future, not older than 15 min), else the arrival time. Stale
+ * repeats of an old fix therefore never look like fresh motion.
+ */
+export function fixTime(fix, arrivalT) {
+  const t = fix?.t;
+  if (!Number.isFinite(t)) return arrivalT;
+  if (t > arrivalT + 60_000 || t < arrivalT - 15 * 60_000) return arrivalT;
+  return t;
 }
 
 function createTrack(layerId, id, label) {
@@ -278,9 +292,10 @@ export function createPositionHistory({
         track = createTrack(layerId, fix.id, fix.label);
         tracks.set(fix.id, track);
       } else if (fix.label && fix.label !== fix.id) track.label = fix.label;
+      const ft = fixTime(fix, t);
       if (track.count) {
         const last = slot(track, track.count - 1);
-        const since = t - track.t[last];
+        const since = ft - track.t[last];
         if (since < MIN_FIX_SPACING_MS) continue;
         if (
           since < STATIONARY_REFRESH_MS &&
@@ -289,7 +304,7 @@ export function createPositionHistory({
         )
           continue;
       }
-      allocatedBytes += append(track, t, fix);
+      allocatedBytes += append(track, ft, fix);
       accepted++;
     }
     if (!Number.isFinite(newestT) || t > newestT) newestT = t;

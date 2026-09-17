@@ -69,7 +69,7 @@ and browser speech. At most 12 watches, one alert every 4 s.
 | --- | --- | --- |
 | `OLLAMA_VOICE_MODEL` | `qwen3:8b` | 11/12 on `npm run qa:tool-calls`, 300 ms median |
 | `OLLAMA_VISION_MODEL` | `qwen3-vl:4b` | fits beside the tool model; ~1.5 s warm answer |
-| `OLLAMA_NUM_CTX` | `16384` | prompt + tools is ~10k tokens; HUD uses the same value so Ollama never reloads |
+| `OLLAMA_NUM_CTX` | `24576` | prompt + 70 tools is ~14.5k tokens; HUD uses the same value so Ollama never reloads |
 | `WHISPER_MODEL` / `WHISPER_DEVICE` | `large-v3-turbo` / `auto` | ~120 ms on CUDA; auto falls back to CPU (use `small` there) |
 | `WHISPER_LANGUAGE` | `auto` | detected language drives the reply language and voice |
 | `TTS_VOICE`, `TTS_VOICE_<LANG>` | `en_US-ryan-high`, per-language defaults | voices live in `.local/voices` |
@@ -77,7 +77,7 @@ and browser speech. At most 12 watches, one alert every 4 s.
 | `SPEAKER_MODEL` | `.local/models/wespeaker_en_voxceleb_CAM++.onnx` | `npm run speaker:fetch` downloads it (29 MB, Apache-2.0); speaker identity is off without it |
 
 On the Ollama service: `OLLAMA_MAX_LOADED_MODELS=2`, `OLLAMA_KEEP_ALIVE=30m`,
-`OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_CONTEXT_LENGTH=16384`.
+`OLLAMA_KV_CACHE_TYPE=q8_0`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_CONTEXT_LENGTH=24576`.
 
 ## Checking it
 

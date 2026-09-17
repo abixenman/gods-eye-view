@@ -180,6 +180,7 @@ export function createQueries({
       speedMps: num(info?.speedMps),
       heading: num(info?.track),
       verticalRateMps: num(info?.verticalRateMps),
+      positionTimeMs: num(info?.lastContactEpochMs),
       onGround: info?.onGround === true,
       military: true,
       // A converted contact reports the class it RENDERS as (mirror of

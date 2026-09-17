@@ -239,3 +239,28 @@ test('attach swaps managers without losing recorded history', () => {
   assert.equal(history.trackOf('flights', 'b').length, 1);
   history.destroy();
 });
+
+test('fixTime prefers a plausible source timestamp over arrival time', async () => {
+  const { fixTime, fixFromRecord } = await import('./positionHistory.js');
+  const arrival = 1_000_000_000;
+  assert.equal(fixTime({ t: arrival - 20_000 }, arrival), arrival - 20_000);
+  assert.equal(fixTime({ t: null }, arrival), arrival, 'no source time');
+  assert.equal(fixTime({ t: arrival + 120_000 }, arrival), arrival, 'future');
+  assert.equal(
+    fixTime({ t: arrival - 20 * 60_000 }, arrival),
+    arrival,
+    'too old',
+  );
+  const fix = fixFromRecord('flights', {
+    icao24: 'abc123',
+    lat: 30,
+    lon: -90,
+    altitudeM: 9000,
+    positionTimeMs: arrival - 5_000,
+  });
+  assert.equal(fix.t, arrival - 5_000);
+  assert.equal(
+    fixFromRecord('ais-live-vessels', { mmsi: '1', lat: 1, lon: 1 }).t,
+    undefined,
+  );
+});

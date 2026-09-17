@@ -21,9 +21,14 @@ test('rules fire on the right shapes and stay quiet otherwise', () => {
   const stopped = evaluateTrack('ais-live-vessels', vessel, { now: T0 });
   assert.deepEqual(stopped.map((a) => a.kind), ['stopped_vessel']);
 
-  // Rapid descent: 1500 m in 60 s.
-  const descent = [fix(T0 - 2 * MIN, 30, -90, { heightM: 6000 }), fix(T0 - MIN, 30.05, -90, { heightM: 5800 }), fix(T0, 30.1, -90, { heightM: 4300 })];
+  // Rapid descent: 2600 m in 60 s (emergency descent); a normal 1000 m/min descent stays quiet.
+  const descent = [fix(T0 - 2 * MIN, 30, -90, { heightM: 7000 }), fix(T0 - MIN, 30.05, -90, { heightM: 6800 }), fix(T0, 30.1, -90, { heightM: 4200 })];
   assert.deepEqual(evaluateTrack('flights', descent, { now: T0 }).map((a) => a.kind), ['rapid_descent']);
+  const normal = [fix(T0 - MIN, 30, -90, { heightM: 6000 }), fix(T0, 30.05, -90, { heightM: 5000 })];
+  assert.deepEqual(evaluateTrack('flights', normal, { now: T0 }), []);
+  // A 30 s poll that carried 110 s of real travel (stale source data) is not a jump.
+  const stale = [fix(T0 - 30_000, 30, -90), fix(T0, 30, -89.7)];
+  assert.deepEqual(evaluateTrack('flights', stale, { now: T0 }), []);
 
   // Orbiting: heading sweeps 3 full turns with almost no displacement.
   const orbit = [];
@@ -81,5 +86,33 @@ test('the engine dedupes per entity with a cooldown, keeps a ledger and speaks b
   engine.setSpoken(false);
   assert.equal(engine.spoken, false);
   assert.ok(store.get('gev:voice-anomalies:v1').includes('position_jump'));
+  engine.destroy();
+});
+
+test('speech is limited to nearby anomalies and a rate budget; the ledger keeps all', () => {
+  const now = T0;
+  const listeners = new Set();
+  const dataManager = { subscribeActivity: (cb) => (listeners.add(cb), () => listeners.delete(cb)) };
+  const ids = ['a1', 'a2', 'a3', 'far'];
+  const history = {
+    entitiesAt: () => ids.map((id) => ({ layerId: 'flights', id, label: id.toUpperCase() })),
+    trackOf: (layer, id) => [fix(T0 - 30_000, id === 'far' ? 50 : 30, -90), fix(T0, id === 'far' ? 51.8 : 31.8, -90)],
+  };
+  const out = [];
+  const engine = createAnomalyEngine({
+    dataManager,
+    getHistory: () => history,
+    onAnomaly: (a) => out.push(a),
+    storage: { getItem: () => null, setItem: () => {} },
+    now: () => now,
+    isRelevant: (r) => r.lat < 40,
+    speakMinGapMs: 0,
+    speakBudget: { count: 2, perMs: 10 * MIN },
+  });
+  engine.start();
+  for (const cb of listeners) cb({ type: 'data-updated', layerId: 'flights' });
+  assert.equal(out.length, 4, 'every anomaly reaches the ledger');
+  assert.deepEqual(out.map((a) => a.nearby), [true, true, true, false]);
+  assert.deepEqual(out.map((a) => a.spoken), [true, true, false, false], 'budget of two, far one silent');
   engine.destroy();
 });

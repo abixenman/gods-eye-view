@@ -18,7 +18,7 @@ export function ollamaBaseUrl(env = process.env) {
 export function ollamaRequestDefaults(env = process.env) {
   return {
     keep_alive: env.OLLAMA_KEEP_ALIVE || '30m',
-    num_ctx: Number(env.OLLAMA_NUM_CTX) || 16384,
+    num_ctx: Number(env.OLLAMA_NUM_CTX) || 24576,
     timeoutMs: Number(env.OLLAMA_TIMEOUT_MS) || 90_000,
   };
 }
