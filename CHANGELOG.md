@@ -1,5 +1,12 @@
 # Changelog
 
+- Add radio-in-the-loop to the local voice assistant: `radio_listen` runs
+  ffmpeg + faster-whisper on the dev server against the station playing in the
+  Radio layer (or one named by the user, resolved through the radio directory),
+  keeps an hour of timestamped transcript per listener, and `radio_transcript`
+  / `radio_search` / `radio_stop` let the assistant answer "what did they just
+  say about the storm". Needs ffmpeg (`FFMPEG_PATH`, PATH or the winget
+  install); see docs/RADIO-LISTEN.md.
 - Add time travel: rewind and scrub the last 15 minutes of live flights,
   military flights and ships from an in-memory position history (32 MB cap).
   A `⏪ 10 MIN` dock button opens a scrubber with play/pause, ×1/×4/×16 and
